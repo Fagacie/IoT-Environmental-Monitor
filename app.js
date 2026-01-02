@@ -71,8 +71,12 @@ const API = {
         const response = await fetch(url, { 
           signal: controller.signal,
           headers: {
-            'Accept': 'application/json'
-          }
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          },
+          cache: 'no-store'
         });
         
         clearTimeout(timeoutId);
@@ -143,7 +147,7 @@ const API = {
     this.updateConnectionStatus('connecting');
     
     try {
-      const url = `${CONFIG.baseUrl}/${CONFIG.channelId}/feeds/last.json?api_key=${CONFIG.apiKey}`;
+      const url = `${CONFIG.baseUrl}/${CONFIG.channelId}/feeds/last.json?api_key=${CONFIG.apiKey}&t=${Date.now()}`;
       console.log('Fetching latest data from:', url);
       
       const data = await this.fetchWithRetry(url);
@@ -182,7 +186,7 @@ const API = {
     STATE.statistics.totalRequests++;
     
     try {
-      const url = `${CONFIG.baseUrl}/${CONFIG.channelId}/feeds.json?results=${results}&api_key=${CONFIG.apiKey}`;
+      const url = `${CONFIG.baseUrl}/${CONFIG.channelId}/feeds.json?results=${results}&api_key=${CONFIG.apiKey}&t=${Date.now()}`;
       console.log('Fetching historical data from:', url);
       
       const data = await this.fetchWithRetry(url);
