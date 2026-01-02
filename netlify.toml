@@ -1,21 +1,14 @@
 # Netlify Configuration for IoT Dashboard
-# Prevents caching of dynamic content from ThingSpeak API
+# Prevents caching of dynamic content
 
 [[headers]]
 # Cache-busting for HTML - always fetch fresh
 for = "/*.html"
 [headers.values]
   Cache-Control = "public, max-age=0, must-revalidate"
-  Expires = "0"
 
 [[headers]]
 # Cache CSS and JS (they have cache-busting in code)
 for = "/*.{js,css}"
 [headers.values]
   Cache-Control = "public, max-age=3600"
-
-[[redirects]]
-# Prevent caching of any external API calls
-from = "/*"
-to = ":splat"
-status = 200
