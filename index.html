@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="IoT Environmental & Water Level Monitoring Dashboard">
+  <title>IoT Environmental Monitoring | FSKM UMT</title>
+  <link rel="stylesheet" href="styles-professional.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.1/build/global/luxon.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+</head>
+<body>
+  
+  <!-- Professional Navigation Bar -->
+  <nav class="navbar">
+    <div class="navbar-container">
+      <div class="navbar-brand">
+        <div class="brand-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>IoT Environmental Monitor</h1>
+          <span>FSKM | UMT</span>
+        </div>
+      </div>
+      
+      <div class="navbar-center">
+        <div class="current-time">
+          <span id="currentTime">--:--:--</span>
+        </div>
+        <div class="current-date">
+          <span id="currentDate">Loading...</span>
+        </div>
+      </div>
+      
+      <div class="navbar-actions">
+        <button id="refreshBtn" class="nav-btn" title="Refresh Data">
+          <span class="btn-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+            </svg>
+          </span>
+          <span class="btn-text">Refresh</span>
+        </button>
+        <button id="themeToggle" class="nav-btn" title="Toggle Theme">
+          <span class="btn-icon" id="themeIcon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </span>
+        </button>
+        <div id="connectionStatus" class="connection-badge">
+          <span class="badge-dot"></span>
+          <span class="badge-text">Connecting...</span>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Dashboard -->
+  <main class="dashboard">
+    <div class="dashboard-container">
+      
+      <!-- Statistics Overview -->
+      <section class="stats-overview">
+        <div class="stat-card stat-primary">
+          <div class="stat-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <line x1="9" y1="9" x2="15" y2="9"/>
+              <line x1="9" y1="15" x2="15" y2="15"/>
+            </svg>
+          </div>
+          <div class="stat-content">
+            <h3>Active Sensors</h3>
+            <p class="stat-value" id="activeSensors">4</p>
+            <span class="stat-label">All systems operational</span>
+          </div>
+        </div>
+        
+        <div class="stat-card stat-success">
+          <div class="stat-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+          </div>
+          <div class="stat-content">
+            <h3>Data Points</h3>
+            <p class="stat-value" id="dataPoints">--</p>
+            <span class="stat-label">Total readings today</span>
+          </div>
+        </div>
+        
+        <div class="stat-card stat-info">
+          <div class="stat-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <div class="stat-content">
+            <h3>Update Rate</h3>
+            <p class="stat-value">20s</p>
+            <span class="stat-label">Refresh interval</span>
+          </div>
+        </div>
+        
+        <div class="stat-card stat-warning">
+          <div class="stat-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <div class="stat-content">
+            <h3>API Status</h3>
+            <p class="stat-value" id="apiStatus">Online</p>
+            <span class="stat-label">ThingSpeak Channel</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Live Gauges Section -->
+      <section class="gauges-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <span class="title-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 3v18h18"/>
+                <path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/>
+              </svg>
+            </span>
+            Live Sensor Readings
+          </h2>
+          <div class="last-update-badge">
+            <span class="update-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+            </span>
+            <span id="lastUpdate">Never</span>
+          </div>
+        </div>
+        
+        <div class="gauges-grid">
+          
+          <div class="gauge-card card-temperature">
+            <div class="gauge-header">
+              <span class="gauge-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>
+                </svg>
+              </span>
+              <h3>Temperature</h3>
+            </div>
+            <canvas id="gaugeTemp" class="gauge-canvas"></canvas>
+            <div class="gauge-value">
+              <span id="valuTemp" class="value">--</span>
+              <span class="unit">°C</span>
+            </div>
+            <div class="gauge-status" id="statusTemp">Normal</div>
+            <div class="gauge-range">Range: 15-35°C</div>
+          </div>
+
+          <div class="gauge-card card-humidity">
+            <div class="gauge-header">
+              <span class="gauge-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
+                </svg>
+              </span>
+              <h3>Humidity</h3>
+            </div>
+            <canvas id="gaugeHum" class="gauge-canvas"></canvas>
+            <div class="gauge-value">
+              <span id="valuHum" class="value">--</span>
+              <span class="unit">%</span>
+            </div>
+            <div class="gauge-status" id="statusHum">Normal</div>
+            <div class="gauge-range">Range: 30-80%</div>
+          </div>
+
+          <div class="gauge-card card-pressure">
+            <div class="gauge-header">
+              <span class="gauge-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M12 6v6l4 2"/>
+                </svg>
+              </span>
+              <h3>Air Pressure</h3>
+            </div>
+            <canvas id="gaugePres" class="gauge-canvas"></canvas>
+            <div class="gauge-value">
+              <span id="valuPres" class="value">--</span>
+              <span class="unit">hPa</span>
+            </div>
+            <div class="gauge-status" id="statusPres">Normal</div>
+            <div class="gauge-range">Range: 980-1040 hPa</div>
+          </div>
+
+          <div class="gauge-card card-water">
+            <div class="gauge-header">
+              <span class="gauge-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/>
+                </svg>
+              </span>
+              <h3>Water Level</h3>
+            </div>
+            <canvas id="gaugeWater" class="gauge-canvas"></canvas>
+            <div class="gauge-value">
+              <span id="valuWater" class="value">--</span>
+              <span class="unit">cm</span>
+            </div>
+            <div class="gauge-status" id="statusWater">Normal</div>
+            <div class="gauge-range">Range: 0-100 cm</div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- Historical Trends Section -->
+      <section class="charts-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <span class="title-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+              </svg>
+            </span>
+            Historical Trends & Analysis
+          </h2>
+          <div class="time-controls">
+            <button class="time-btn active" data-range="60">
+              <span class="time-label">1 Hour</span>
+              <span class="time-desc">60 points</span>
+            </button>
+            <button class="time-btn" data-range="360">
+              <span class="time-label">6 Hours</span>
+              <span class="time-desc">360 points</span>
+            </button>
+            <button class="time-btn" data-range="1440">
+              <span class="time-label">24 Hours</span>
+              <span class="time-desc">1440 points</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="charts-grid">
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Temperature Trend</h3>
+              <span class="chart-badge">Real-time</span>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="chartTemp"></canvas>
+            </div>
+          </div>
+          
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Humidity Trend</h3>
+              <span class="chart-badge">Real-time</span>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="chartHum"></canvas>
+            </div>
+          </div>
+          
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Pressure Trend</h3>
+              <span class="chart-badge">Real-time</span>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="chartPres"></canvas>
+            </div>
+          </div>
+          
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Water Level Trend</h3>
+              <span class="chart-badge">Real-time</span>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="chartWater"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- System Information Grid -->
+      <section class="system-info-grid">
+        
+        <!-- System Health -->
+        <div class="info-card">
+          <h3 class="info-title">
+            <span class="info-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                <polyline points="22 4 12 14.01 9 11.01"/>
+              </svg>
+            </span>
+            System Health
+          </h3>
+          <div class="health-grid">
+            <div class="health-item">
+              <div class="health-indicator active"></div>
+              <span>Temperature Sensor</span>
+            </div>
+            <div class="health-item">
+              <div class="health-indicator active"></div>
+              <span>Humidity Sensor</span>
+            </div>
+            <div class="health-item">
+              <div class="health-indicator active"></div>
+              <span>Pressure Sensor</span>
+            </div>
+            <div class="health-item">
+              <div class="health-indicator active"></div>
+              <span>Water Level Sensor</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Activity Log -->
+        <div class="info-card">
+          <h3 class="info-title">
+            <span class="info-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+                <polyline points="10 9 9 9 8 9"/>
+              </svg>
+            </span>
+            Recent Activity
+          </h3>
+          <div class="activity-log" id="activityLog">
+            <div class="activity-item">
+              <span class="activity-time">--:--</span>
+              <span class="activity-text">Dashboard initialized</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- System Details -->
+        <div class="info-card">
+          <h3 class="info-title">
+            <span class="info-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M12 1v6m0 6v6m5.2-13.2l-4.2 4.2m0 6l4.2 4.2M1 12h6m6 0h6M5.8 5.8l4.2 4.2m0 6l-4.2 4.2"/>
+              </svg>
+            </span>
+            System Configuration
+          </h3>
+          <div class="config-grid">
+            <div class="config-item">
+              <span class="config-label">Data Source</span>
+              <span class="config-value">ThingSpeak #3216999</span>
+            </div>
+            <div class="config-item">
+              <span class="config-label">Sensors Active</span>
+              <span class="config-value">4/4</span>
+            </div>
+            <div class="config-item">
+              <span class="config-label">Update Interval</span>
+              <span class="config-value">20 seconds</span>
+            </div>
+            <div class="config-item">
+              <span class="config-label">Chart Refresh</span>
+              <span class="config-value">60 seconds</span>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-content">
+      <p>Faculty of Science and Marine Environment (FSKM) | Universiti Malaysia Terengganu</p>
+      <p>CSM3313 IoT Computing | Environmental & Water Level Monitoring System | 2026</p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

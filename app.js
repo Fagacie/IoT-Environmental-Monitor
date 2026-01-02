@@ -1,0 +1,1288 @@
+// ===================================
+// Modern IoT Dashboard - Professional Edition
+// ===================================
+
+// Configuration
+const CONFIG = {
+  channelId: 3216999,
+  apiKey: 'G6OOCBLAPWKE8V2D', // Letter O not zero - TODO: Move to backend/env variable
+  baseUrl: 'https://api.thingspeak.com/channels',
+  updateInterval: 20000, // 20 seconds
+  chartUpdateInterval: 60000, // 1 minute
+  defaultRange: 60, // 1 hour in results
+  maxRetries: 3,
+  retryDelay: 2000,
+  requestTimeout: 10000,
+  sensors: {
+    temperature: { field: 'field1', unit: '°C', color: '#f59e0b', min: 15, max: 35, name: 'Temperature' },
+    humidity: { field: 'field2', unit: '%', color: '#3b82f6', min: 30, max: 80, name: 'Humidity' },
+    pressure: { field: 'field3', unit: 'hPa', color: '#8b5cf6', min: 980, max: 1040, name: 'Pressure' },
+    waterLevel: { field: 'field4', unit: 'cm', color: '#06b6d4', min: 0, max: 100, name: 'Water Level' }
+  }
+};
+
+// State Management
+const STATE = {
+  currentRange: 60,
+  gaugeCharts: {},
+  lineCharts: {},
+  lastUpdate: null,
+  theme: localStorage.getItem('theme') || 'light',
+  activityLog: [],
+  dataPointsToday: 0,
+  isOnline: true,
+  isLoading: false,
+  connectionStatus: 'disconnected',
+  lastError: null,
+  retryCount: 0,
+  statistics: {
+    totalRequests: 0,
+    successfulRequests: 0,
+    failedRequests: 0,
+    averageResponseTime: 0,
+    responseTimes: [],
+    dataQuality: {
+      temperature: { valid: 0, invalid: 0, outliers: 0 },
+      humidity: { valid: 0, invalid: 0, outliers: 0 },
+      pressure: { valid: 0, invalid: 0, outliers: 0 },
+      waterLevel: { valid: 0, invalid: 0, outliers: 0 }
+    }
+  },
+  alerts: [],
+  dataHistory: {
+    temperature: [],
+    humidity: [],
+    pressure: [],
+    waterLevel: []
+  },
+  userPreferences: JSON.parse(localStorage.getItem('userPreferences') || '{}')
+};
+
+// ===================================
+// API Service with Retry Logic & Error Handling
+// ===================================
+const API = {
+  async fetchWithRetry(url, retries = CONFIG.maxRetries) {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), CONFIG.requestTimeout);
+        
+        const response = await fetch(url, { 
+          signal: controller.signal,
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        // Reset retry count on success
+        STATE.retryCount = 0;
+        STATE.connectionStatus = 'connected';
+        this.updateConnectionStatus('connected');
+        
+        return data;
+      } catch (error) {
+        STATE.retryCount = i + 1;
+        console.warn(`Request attempt ${i + 1} failed:`, error.message);
+        
+        if (i === retries - 1) {
+          STATE.connectionStatus = 'error';
+          this.updateConnectionStatus('error');
+          throw error;
+        }
+        
+        // Exponential backoff
+        await this.delay(CONFIG.retryDelay * Math.pow(2, i));
+      }
+    }
+  },
+  
+  delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  },
+  
+  updateConnectionStatus(status) {
+    const statusEl = document.getElementById('connectionStatus');
+    const badgeDot = statusEl?.querySelector('.badge-dot');
+    const badgeText = statusEl?.querySelector('.badge-text');
+    
+    if (!statusEl) return;
+    
+    statusEl.className = 'connection-badge';
+    
+    switch(status) {
+      case 'connected':
+        statusEl.classList.add('connected');
+        if (badgeText) badgeText.textContent = 'Connected';
+        break;
+      case 'connecting':
+        statusEl.classList.add('connecting');
+        if (badgeText) badgeText.textContent = 'Connecting...';
+        break;
+      case 'error':
+        statusEl.classList.add('error');
+        if (badgeText) badgeText.textContent = 'Connection Error';
+        break;
+      default:
+        if (badgeText) badgeText.textContent = 'Disconnected';
+    }
+  },
+  
+  async getLatestData() {
+    const startTime = performance.now();
+    STATE.statistics.totalRequests++;
+    STATE.isLoading = true;
+    this.updateConnectionStatus('connecting');
+    
+    try {
+      const url = `${CONFIG.baseUrl}/${CONFIG.channelId}/feeds/last.json?api_key=${CONFIG.apiKey}`;
+      console.log('Fetching latest data from:', url);
+      
+      const data = await this.fetchWithRetry(url);
+      
+      // Validate data
+      if (!this.validateData(data)) {
+        throw new Error('Invalid data received from API');
+      }
+      
+      // Track performance
+      const endTime = performance.now();
+      const responseTime = endTime - startTime;
+      this.trackPerformance(responseTime);
+      
+      STATE.statistics.successfulRequests++;
+      STATE.lastError = null;
+      STATE.isLoading = false;
+      
+      console.log('Latest data received:', data);
+      return data;
+    } catch (error) {
+      STATE.statistics.failedRequests++;
+      STATE.lastError = error.message;
+      STATE.isLoading = false;
+      console.error('Error fetching latest data:', error);
+      
+      UI.addActivity(`⚠️ API Error: ${error.message}`);
+      ErrorHandler.handle(error, 'Failed to fetch latest data');
+      
+      throw error;
+    }
+  },
+
+  async getHistoricalData(results = 60) {
+    const startTime = performance.now();
+    STATE.statistics.totalRequests++;
+    
+    try {
+      const url = `${CONFIG.baseUrl}/${CONFIG.channelId}/feeds.json?results=${results}&api_key=${CONFIG.apiKey}`;
+      console.log('Fetching historical data from:', url);
+      
+      const data = await this.fetchWithRetry(url);
+      
+      // Track performance
+      const endTime = performance.now();
+      const responseTime = endTime - startTime;
+      this.trackPerformance(responseTime);
+      
+      STATE.statistics.successfulRequests++;
+      console.log(`Historical data received: ${data.feeds?.length || 0} records`);
+      return data.feeds || [];
+    } catch (error) {
+      STATE.statistics.failedRequests++;
+      console.error('Error fetching historical data:', error);
+      ErrorHandler.handle(error, 'Failed to fetch historical data');
+      throw error;
+    }
+  },
+  
+  validateData(data) {
+    if (!data || typeof data !== 'object') {
+      console.error('Invalid data format');
+      return false;
+    }
+    
+    // Check if data is fresh (within last 5 minutes)
+    if (data.created_at) {
+      const dataAge = new Date() - new Date(data.created_at);
+      if (dataAge > 300000) { // 5 minutes
+        console.warn('Data is stale:', new Date(data.created_at));
+      }
+    }
+    
+    return true;
+  },
+  
+  trackPerformance(responseTime) {
+    STATE.statistics.responseTimes.push(responseTime);
+    // Keep only last 50 measurements
+    if (STATE.statistics.responseTimes.length > 50) {
+      STATE.statistics.responseTimes.shift();
+    }
+    // Calculate average
+    const sum = STATE.statistics.responseTimes.reduce((a, b) => a + b, 0);
+    STATE.statistics.averageResponseTime = (sum / STATE.statistics.responseTimes.length).toFixed(2);
+  }
+};
+
+// ===================================
+// Gauge Charts
+// ===================================
+const Gauges = {
+  init() {
+    console.log('Initializing gauge charts...');
+    Object.keys(CONFIG.sensors).forEach(sensor => {
+      this.createGauge(sensor);
+    });
+  },
+
+  createGauge(sensor) {
+    const config = CONFIG.sensors[sensor];
+    // Use full sensor names for clarity
+    const sensorNames = {
+      temperature: 'Temp',
+      humidity: 'Hum',
+      pressure: 'Pres',
+      waterLevel: 'Water'
+    };
+    const canvasId = `gauge${sensorNames[sensor]}`;
+    const ctx = document.getElementById(canvasId);
+    
+    if (!ctx) {
+      console.error(`Canvas not found: ${canvasId}`);
+      return;
+    }
+
+    const chart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        datasets: [{
+          data: [0, 100],
+          backgroundColor: [config.color, 'rgba(226, 232, 240, 0.2)'],
+          borderWidth: 0,
+          circumference: 270,
+          rotation: 225
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        aspectRatio: 1.5,
+        cutout: '75%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: false }
+        }
+      }
+    });
+
+    STATE.gaugeCharts[sensor] = chart;
+    console.log(`Gauge created for ${sensor}`);
+  },
+
+  update(sensor, value) {
+    const chart = STATE.gaugeCharts[sensor];
+    const config = CONFIG.sensors[sensor];
+    
+    if (!chart || value === null || value === undefined) return;
+
+    const numValue = parseFloat(value);
+    const range = config.max - config.min;
+    const percentage = ((numValue - config.min) / range) * 100;
+    const displayPercentage = Math.max(0, Math.min(100, percentage));
+
+    chart.data.datasets[0].data = [displayPercentage, 100 - displayPercentage];
+    chart.update('none');
+
+    // Update value display
+    const sensorNames = {
+      temperature: 'Temp',
+      humidity: 'Hum',
+      pressure: 'Pres',
+      waterLevel: 'Water'
+    };
+    const valueId = `valu${sensorNames[sensor]}`;
+    const valueElement = document.getElementById(valueId);
+    if (valueElement) {
+      valueElement.textContent = numValue.toFixed(1);
+    }
+
+    // Update status
+    this.updateStatus(sensor, numValue, config);
+  },
+
+  updateStatus(sensor, value, config) {
+    const sensorNames = {
+      temperature: 'Temp',
+      humidity: 'Hum',
+      pressure: 'Pres',
+      waterLevel: 'Water'
+    };
+    const statusId = `status${sensorNames[sensor]}`;
+    const statusElement = document.getElementById(statusId);
+    
+    if (!statusElement) return;
+
+    // Remove all status classes
+    statusElement.classList.remove('normal', 'warning', 'critical');
+
+    // Determine status
+    const lowWarning = config.min + (config.max - config.min) * 0.1;
+    const highWarning = config.max - (config.max - config.min) * 0.1;
+
+    if (value < config.min || value > config.max) {
+      statusElement.textContent = 'Critical';
+      statusElement.classList.add('critical');
+    } else if (value < lowWarning || value > highWarning) {
+      statusElement.textContent = 'Warning';
+      statusElement.classList.add('warning');
+    } else {
+      statusElement.textContent = 'Normal';
+      statusElement.classList.add('normal');
+    }
+  }
+};
+
+// ===================================
+// Line Charts
+// ===================================
+const Charts = {
+  init() {
+    console.log('Initializing line charts...');
+    Object.keys(CONFIG.sensors).forEach(sensor => {
+      this.createChart(sensor);
+    });
+  },
+
+  createChart(sensor) {
+    const config = CONFIG.sensors[sensor];
+    const sensorNames = {
+      temperature: 'Temp',
+      humidity: 'Hum',
+      pressure: 'Pres',
+      waterLevel: 'Water'
+    };
+    const canvasId = `chart${sensorNames[sensor]}`;
+    const ctx = document.getElementById(canvasId);
+    
+    if (!ctx) {
+      console.error(`Canvas not found: ${canvasId}`);
+      return;
+    }
+
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        datasets: [{
+          label: sensor.charAt(0).toUpperCase() + sensor.slice(1),
+          data: [],
+          borderColor: config.color,
+          backgroundColor: config.color + '20',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 5
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            padding: 12,
+            titleColor: '#fff',
+            bodyColor: '#fff',
+            callbacks: {
+              label: (context) => `${context.parsed.y.toFixed(2)} ${config.unit}`
+            }
+          }
+        },
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              unit: 'minute',
+              displayFormats: {
+                minute: 'HH:mm',
+                hour: 'HH:mm'
+              }
+            },
+            grid: {
+              color: 'rgba(148, 163, 184, 0.1)'
+            },
+            ticks: {
+              color: getComputedStyle(document.documentElement)
+                .getPropertyValue('--text-secondary').trim()
+            }
+          },
+          y: {
+            beginAtZero: false,
+            grid: {
+              color: 'rgba(148, 163, 184, 0.1)'
+            },
+            ticks: {
+              color: getComputedStyle(document.documentElement)
+                .getPropertyValue('--text-secondary').trim(),
+              callback: (value) => value.toFixed(1) + config.unit
+            }
+          }
+        }
+      }
+    });
+
+    STATE.lineCharts[sensor] = chart;
+    console.log(`Line chart created for ${sensor}`);
+  },
+
+  async updateAll(range = STATE.currentRange) {
+    console.log(`Updating all charts with ${range} results...`);
+    try {
+      const feeds = await API.getHistoricalData(range);
+      
+      Object.keys(CONFIG.sensors).forEach(sensor => {
+        this.updateChart(sensor, feeds);
+      });
+    } catch (error) {
+      console.error('Error updating charts:', error);
+    }
+  },
+
+  updateChart(sensor, feeds) {
+    const chart = STATE.lineCharts[sensor];
+    const config = CONFIG.sensors[sensor];
+    
+    if (!chart) return;
+
+    const data = feeds
+      .filter(feed => feed[config.field] !== null)
+      .map(feed => ({
+        x: new Date(feed.created_at),
+        y: parseFloat(feed[config.field])
+      }));
+
+    console.log(`Updating ${sensor} chart with ${data.length} points`);
+    
+    chart.data.datasets[0].data = data;
+    chart.update('none');
+  }
+};
+
+// ===================================
+// UI Updates
+// ===================================
+const UI = {
+  async updateLiveData() {
+    try {
+      const data = await API.getLatestData();
+      
+      if (!data || !data.created_at) {
+        console.error('Invalid data received');
+        this.setConnectionStatus('disconnected');
+        return;
+      }
+
+      // Update each gauge
+      Gauges.update('temperature', data.field1);
+      Gauges.update('humidity', data.field2);
+      Gauges.update('pressure', data.field3);
+      Gauges.update('waterLevel', data.field4);
+
+      // Update last update time
+      const lastUpdate = new Date(data.created_at);
+      STATE.lastUpdate = lastUpdate;
+      const lastUpdateEl = document.getElementById('lastUpdate');
+      if (lastUpdateEl) {
+        lastUpdateEl.textContent = lastUpdate.toLocaleTimeString();
+      }
+
+      // Increment data points counter
+      STATE.dataPointsToday++;
+      const dataPointsEl = document.getElementById('dataPoints');
+      if (dataPointsEl) {
+        dataPointsEl.textContent = STATE.dataPointsToday;
+      }
+
+      // Add to activity log
+      this.addActivity(`Data updated: T=${data.field1}°C, H=${data.field2}%`);
+
+      this.setConnectionStatus('connected');
+    } catch (error) {
+      console.error('Error updating live data:', error);
+      this.setConnectionStatus('disconnected');
+      this.addActivity('Error: Connection failed', 'error');
+    }
+  },
+
+  setConnectionStatus(status) {
+    const statusEl = document.getElementById('connectionStatus');
+    if (!statusEl) return;
+
+    statusEl.className = `connection-badge ${status}`;
+    
+    const statusText = {
+      connected: 'Connected',
+      stale: 'Stale Data',
+      disconnected: 'Disconnected'
+    };
+
+    const textEl = statusEl.querySelector('.badge-text');
+    if (textEl) {
+      textEl.textContent = statusText[status] || 'Unknown';
+    }
+
+    // Update API status
+    const apiStatusEl = document.getElementById('apiStatus');
+    if (apiStatusEl) {
+      apiStatusEl.textContent = status === 'connected' ? 'Online' : 'Offline';
+      apiStatusEl.style.color = status === 'connected' ? 'var(--success)' : 'var(--danger)';
+    }
+  },
+
+  setupTimeRangeButtons() {
+    const buttons = document.querySelectorAll('.time-btn');
+    buttons.forEach(btn => {
+      btn.addEventListener('click', async () => {
+        buttons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        const range = parseInt(btn.dataset.range);
+        STATE.currentRange = range;
+        await Charts.updateAll(range);
+        
+        this.addActivity(`Chart range changed to ${btn.querySelector('.time-label').textContent}`);
+      });
+    });
+  },
+
+  updateClock() {
+    const now = new Date();
+    
+    // Update time
+    const timeEl = document.getElementById('currentTime');
+    if (timeEl) {
+      timeEl.textContent = now.toLocaleTimeString('en-US', { 
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    }
+    
+    // Update date
+    const dateEl = document.getElementById('currentDate');
+    if (dateEl) {
+      dateEl.textContent = now.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    }
+  },
+
+  addActivity(text, type = 'info') {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('en-US', { 
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
+    STATE.activityLog.unshift({ time: timeStr, text, type });
+    
+    // Keep only last 10 items
+    if (STATE.activityLog.length > 10) {
+      STATE.activityLog = STATE.activityLog.slice(0, 10);
+    }
+    
+    this.renderActivityLog();
+  },
+
+  renderActivityLog() {
+    const logEl = document.getElementById('activityLog');
+    if (!logEl) return;
+    
+    logEl.innerHTML = STATE.activityLog.map(item => `
+      <div class="activity-item">
+        <span class="activity-time">${item.time}</span>
+        <span class="activity-text">${item.text}</span>
+      </div>
+    `).join('');
+  },
+
+  setupRefreshButton() {
+    const refreshBtn = document.getElementById('refreshBtn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', async () => {
+        refreshBtn.disabled = true;
+        refreshBtn.style.opacity = '0.6';
+        
+        await this.updateLiveData();
+        await Charts.updateAll(STATE.currentRange);
+        this.addActivity('Manual refresh completed');
+        
+        setTimeout(() => {
+          refreshBtn.disabled = false;
+          refreshBtn.style.opacity = '1';
+        }, 2000);
+      });
+    }
+  }
+};
+
+// ===================================
+// Theme Management
+// ===================================
+const Theme = {
+  init() {
+    // Apply saved theme
+    document.documentElement.setAttribute('data-theme', STATE.theme);
+    this.updateThemeIcon();
+    
+    // Setup toggle button
+    const toggle = document.getElementById('themeToggle');
+    if (toggle) {
+      toggle.addEventListener('click', () => this.toggle());
+    }
+  },
+
+  toggle() {
+    STATE.theme = STATE.theme === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', STATE.theme);
+    localStorage.setItem('theme', STATE.theme);
+    this.updateThemeIcon();
+    
+    // Update chart colors
+    Object.values(STATE.lineCharts).forEach(chart => {
+      if (chart) chart.update('none');
+    });
+    
+    UI.addActivity(`Theme changed to ${STATE.theme} mode`);
+  },
+
+  updateThemeIcon() {
+    const iconEl = document.getElementById('themeIcon');
+    if (iconEl) {
+      // Update SVG icon for theme
+      const isDark = STATE.theme === 'dark';
+      iconEl.innerHTML = isDark 
+        ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>'
+        : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+    }
+  }
+};
+
+// ===================================
+// App Initialization
+// ===================================
+const App = {
+  async init() {
+    console.log('🚀 Initializing IoT Dashboard...');
+    
+    try {
+      // Initialize theme
+      Theme.init();
+      
+      // Initialize charts
+      Gauges.init();
+      Charts.init();
+      
+      // Setup UI controls
+      UI.setupTimeRangeButtons();
+      UI.setupRefreshButton();
+      
+      // Start clock
+      UI.updateClock();
+      setInterval(() => UI.updateClock(), 1000);
+      
+      // Initial activity log entry
+      UI.addActivity('Dashboard initialized successfully');
+      
+      // Initial data load
+      console.log('Loading initial data...');
+      await UI.updateLiveData();
+      await Charts.updateAll(STATE.currentRange);
+      
+      // Setup update intervals
+      setInterval(() => UI.updateLiveData(), CONFIG.updateInterval);
+      setInterval(() => Charts.updateAll(STATE.currentRange), CONFIG.chartUpdateInterval);
+      
+      console.log('✅ Dashboard initialized successfully!');
+    } catch (error) {
+      console.error('Initialization error:', error);
+      UI.addActivity('⚠️ Dashboard initialization error');
+    }
+  },
+  
+  // Initialize advanced features after main app is ready
+  initAdvancedFeatures() {
+    try {
+      if (typeof Analytics !== 'undefined') Analytics.init();
+      if (typeof DataExport !== 'undefined') DataExport.init();
+      if (typeof Notifications !== 'undefined') Notifications.init();
+      if (typeof Accessibility !== 'undefined') Accessibility.init();
+      if (typeof PerformanceMonitor !== 'undefined') PerformanceMonitor.start();
+    } catch (error) {
+      console.warn('Advanced features initialization error:', error);
+    }
+  }
+};
+
+// ===================================
+// Analytics & Statistics
+// ===================================
+const Analytics = {
+  init() {
+    console.log('📊 Analytics module initialized');
+    // Update statistics display every 30 seconds
+    setInterval(() => this.updateStatistics(), 30000);
+  },
+  
+  updateStatistics() {
+    // Calculate uptime
+    const uptime = this.calculateUptime();
+    
+    // Calculate success rate
+    const successRate = STATE.statistics.totalRequests > 0 
+      ? ((STATE.statistics.successfulRequests / STATE.statistics.totalRequests) * 100).toFixed(1)
+      : 0;
+    
+    console.log('📈 Statistics:', {
+      totalRequests: STATE.statistics.totalRequests,
+      successRate: `${successRate}%`,
+      avgResponseTime: `${STATE.statistics.averageResponseTime}ms`,
+      uptime: uptime
+    });
+  },
+  
+  calculateUptime() {
+    if (!STATE.lastUpdate) return '0m';
+    const now = new Date();
+    const diff = now - new Date(STATE.lastUpdate);
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ${minutes % 60}m`;
+  },
+  
+  getSensorTrend(sensor) {
+    const history = STATE.dataHistory[sensor];
+    if (history.length < 2) return 'stable';
+    
+    const recent = history.slice(-5);
+    const increasing = recent.every((val, idx) => idx === 0 || val >= recent[idx - 1]);
+    const decreasing = recent.every((val, idx) => idx === 0 || val <= recent[idx - 1]);
+    
+    if (increasing) return 'increasing';
+    if (decreasing) return 'decreasing';
+    return 'fluctuating';
+  }
+};
+
+// ===================================
+// Data Export & Download
+// ===================================
+const DataExport = {
+  init() {
+    console.log('💾 Data export module initialized');
+    this.setupKeyboardShortcuts();
+  },
+  
+  setupKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+      // Ctrl+S or Cmd+S to export data
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        this.exportToCSV();
+      }
+      // Ctrl+P or Cmd+P to print
+      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+        e.preventDefault();
+        window.print();
+      }
+    });
+  },
+  
+  async exportToCSV() {
+    try {
+      const data = await API.getHistoricalData(1000);
+      if (!data || data.length === 0) {
+        UI.addActivity('No data available to export');
+        return;
+      }
+      
+      // Create CSV content
+      const headers = ['Timestamp', 'Temperature (°C)', 'Humidity (%)', 'Pressure (hPa)', 'Water Level (cm)'];
+      const rows = data.map(entry => [
+        entry.created_at,
+        entry.field1 || '',
+        entry.field2 || '',
+        entry.field3 || '',
+        entry.field4 || ''
+      ]);
+      
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.join(','))
+      ].join('\\n');
+      
+      // Download file
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `iot-data-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      UI.addActivity('Data exported successfully to CSV');
+      console.log('✅ Data exported to CSV');
+    } catch (error) {
+      console.error('Export failed:', error);
+      UI.addActivity('Export failed - please try again');
+    }
+  },
+  
+  exportToJSON() {
+    const exportData = {
+      timestamp: new Date().toISOString(),
+      statistics: STATE.statistics,
+      dataHistory: STATE.dataHistory,
+      configuration: CONFIG
+    };
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `iot-session-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    
+    UI.addActivity('Session data exported to JSON');
+  }
+};
+
+// ===================================
+// Smart Notifications & Alerts
+// ===================================
+const Notifications = {
+  init() {
+    console.log('🔔 Notifications module initialized');
+    this.requestPermission();
+  },
+  
+  requestPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then(permission => {
+        if (permission === 'granted') {
+          console.log('✅ Notification permission granted');
+          UI.addActivity('Browser notifications enabled');
+        }
+      });
+    }
+  },
+  
+  send(title, body, type = 'info') {
+    // Browser notification
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(title, {
+        body: body,
+        icon: type === 'warning' ? '⚠️' : type === 'error' ? '❌' : 'ℹ️',
+        tag: 'iot-dashboard'
+      });
+    }
+    
+    // Log alert
+    STATE.alerts.push({
+      time: new Date().toISOString(),
+      title: title,
+      body: body,
+      type: type
+    });
+    
+    // Keep only last 20 alerts
+    if (STATE.alerts.length > 20) {
+      STATE.alerts = STATE.alerts.slice(-20);
+    }
+  },
+  
+  checkThresholds(sensor, value) {
+    const config = CONFIG.sensors[sensor];
+    if (!config) return;
+    
+    const sensorName = sensor.charAt(0).toUpperCase() + sensor.slice(1);
+    
+    if (value < config.min) {
+      this.send(
+        `${sensorName} Alert`,
+        `${sensorName} is critically low: ${value} ${config.unit}`,
+        'error'
+      );
+      UI.addActivity(`⚠️ ${sensorName} below minimum threshold`);
+    } else if (value > config.max) {
+      this.send(
+        `${sensorName} Alert`,
+        `${sensorName} is critically high: ${value} ${config.unit}`,
+        'error'
+      );
+      UI.addActivity(`⚠️ ${sensorName} above maximum threshold`);
+    }
+  }
+};
+
+// ===================================
+// Performance Monitor
+// ===================================
+const PerformanceMonitor = {
+  metrics: {
+    fps: 0,
+    memory: 0,
+    apiLatency: 0
+  },
+  
+  start() {
+    console.log('⚡ Performance monitoring started');
+    
+    // Monitor memory usage (if available)
+    if (performance.memory) {
+      setInterval(() => {
+        this.metrics.memory = (performance.memory.usedJSHeapSize / 1048576).toFixed(2);
+      }, 5000);
+    }
+    
+    // Log performance metrics
+    setInterval(() => {
+      console.log('⚡ Performance:', {
+        apiLatency: `${STATE.statistics.averageResponseTime}ms`,
+        memory: `${this.metrics.memory}MB`,
+        totalRequests: STATE.statistics.totalRequests,
+        successRate: `${((STATE.statistics.successfulRequests / STATE.statistics.totalRequests) * 100).toFixed(1)}%`
+      });
+    }, 60000); // Every minute
+  }
+};
+
+// Start the app when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', async () => {
+    await App.init();
+    // Initialize advanced features after main app is ready
+    setTimeout(() => App.initAdvancedFeatures(), 1000);
+  });
+} else {
+  App.init().then(() => {
+    // Initialize advanced features after main app is ready
+    setTimeout(() => App.initAdvancedFeatures(), 1000);
+  });
+}
+
+// ===================================
+// Error Handler with User Feedback
+// ===================================
+const ErrorHandler = {
+  handle(error, userMessage = 'An error occurred') {
+    console.error('Error:', error);
+    
+    // Log to STATE for debugging
+    STATE.lastError = {
+      message: error.message,
+      time: new Date().toISOString(),
+      userMessage: userMessage
+    };
+    
+    // Show user-friendly error message
+    this.showErrorToast(userMessage);
+    
+    // Log to activity
+    UI.addActivity(`❌ ${userMessage}`);
+  },
+  
+  showErrorToast(message) {
+    // Create toast element if it doesn't exist
+    let toast = document.getElementById('errorToast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'errorToast';
+      toast.className = 'error-toast';
+      document.body.appendChild(toast);
+    }
+    
+    toast.textContent = message;
+    toast.classList.add('show');
+    
+    setTimeout(() => {
+      toast.classList.remove('show');
+    }, 5000);
+  }
+};
+
+// ===================================
+// Data Validation & Quality Control
+// ===================================
+const DataValidator = {
+  validate(sensor, value) {
+    const config = CONFIG.sensors[sensor];
+    const numValue = parseFloat(value);
+    
+    // Check if value is a number
+    if (isNaN(numValue)) {
+      STATE.statistics.dataQuality[sensor].invalid++;
+      console.warn(`Invalid ${sensor} value:`, value);
+      return { valid: false, reason: 'Not a number' };
+    }
+    
+    // Check for outliers (beyond expected range)
+    const isOutlier = this.isOutlier(sensor, numValue);
+    if (isOutlier) {
+      STATE.statistics.dataQuality[sensor].outliers++;
+      console.warn(`Outlier detected for ${sensor}:`, numValue);
+    }
+    
+    // Check for data freshness
+    const isFresh = this.isDataFresh();
+    if (!isFresh) {
+      console.warn('Data is not fresh');
+    }
+    
+    STATE.statistics.dataQuality[sensor].valid++;
+    
+    return { 
+      valid: true, 
+      isOutlier: isOutlier,
+      isFresh: isFresh,
+      value: numValue 
+    };
+  },
+  
+  isOutlier(sensor, value) {
+    const history = STATE.dataHistory[sensor];
+    if (history.length < 10) return false;
+    
+    // Calculate mean and standard deviation
+    const mean = history.reduce((a, b) => a + b, 0) / history.length;
+    const variance = history.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / history.length;
+    const stdDev = Math.sqrt(variance);
+    
+    // Value is outlier if beyond 3 standard deviations
+    return Math.abs(value - mean) > (3 * stdDev);
+  },
+  
+  isDataFresh() {
+    if (!STATE.lastUpdate) return false;
+    const age = new Date() - new Date(STATE.lastUpdate);
+    return age < 60000; // Fresh if less than 1 minute old
+  },
+  
+  getQualityReport() {
+    const report = {};
+    Object.keys(STATE.statistics.dataQuality).forEach(sensor => {
+      const stats = STATE.statistics.dataQuality[sensor];
+      const total = stats.valid + stats.invalid;
+      report[sensor] = {
+        ...stats,
+        qualityPercentage: total > 0 ? ((stats.valid / total) * 100).toFixed(1) : 0
+      };
+    });
+    return report;
+  }
+};
+
+// ===================================
+// Accessibility Features
+// ===================================
+const Accessibility = {
+  init() {
+    console.log('♿ Accessibility features initialized');
+    this.setupKeyboardNavigation();
+    this.addAriaLabels();
+    this.setupFocusManagement();
+  },
+  
+  setupKeyboardNavigation() {
+    // Global keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      // Alt+1 to Alt+4: Focus on gauge cards
+      if (e.altKey && ['1', '2', '3', '4'].includes(e.key)) {
+        e.preventDefault();
+        const gauges = document.querySelectorAll('.gauge-card');
+        const index = parseInt(e.key) - 1;
+        if (gauges[index]) {
+          gauges[index].focus();
+          gauges[index].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+      
+      // Alt+R: Refresh data
+      if (e.altKey && e.key === 'r') {
+        e.preventDefault();
+        document.getElementById('refreshBtn')?.click();
+      }
+      
+      // Alt+T: Toggle theme
+      if (e.altKey && e.key === 't') {
+        e.preventDefault();
+        document.getElementById('themeToggle')?.click();
+      }
+      
+      // Alt+H: Show help
+      if (e.altKey && e.key === 'h') {
+        e.preventDefault();
+        this.showKeyboardShortcuts();
+      }
+    });
+  },
+  
+  addAriaLabels() {
+    // Add ARIA labels to gauges
+    document.querySelectorAll('.gauge-card').forEach((card, index) => {
+      const sensor = Object.keys(CONFIG.sensors)[index];
+      const config = CONFIG.sensors[sensor];
+      card.setAttribute('role', 'region');
+      card.setAttribute('aria-label', `${config.name} gauge`);
+      card.setAttribute('tabindex', '0');
+    });
+    
+    // Add ARIA labels to charts
+    document.querySelectorAll('.chart-card').forEach((card, index) => {
+      const sensor = Object.keys(CONFIG.sensors)[index];
+      const config = CONFIG.sensors[sensor];
+      card.setAttribute('role', 'img');
+      card.setAttribute('aria-label', `${config.name} trend chart`);
+    });
+    
+    // Add ARIA labels to buttons
+    const refreshBtn = document.getElementById('refreshBtn');
+    if (refreshBtn) {
+      refreshBtn.setAttribute('aria-label', 'Refresh dashboard data');
+    }
+    
+    const themeBtn = document.getElementById('themeToggle');
+    if (themeBtn) {
+      themeBtn.setAttribute('aria-label', 'Toggle dark mode');
+    }
+  },
+  
+  setupFocusManagement() {
+    // Enhanced focus indicators
+    document.querySelectorAll('button, a, input, [tabindex]').forEach(el => {
+      el.addEventListener('focus', () => {
+        el.classList.add('keyboard-focus');
+      });
+      el.addEventListener('blur', () => {
+        el.classList.remove('keyboard-focus');
+      });
+    });
+  },
+  
+  showKeyboardShortcuts() {
+    const shortcuts = [
+      { key: 'Alt+1-4', action: 'Focus on gauge cards' },
+      { key: 'Alt+R', action: 'Refresh data' },
+      { key: 'Alt+T', action: 'Toggle theme' },
+      { key: 'Alt+H', action: 'Show this help' },
+      { key: 'Ctrl+S', action: 'Export data to CSV' },
+      { key: 'Ctrl+P', action: 'Print dashboard' }
+    ];
+    
+    const message = shortcuts.map(s => `${s.key}: ${s.action}`).join('\n');
+    alert('Keyboard Shortcuts:\n\n' + message);
+  }
+};
+
+// ===================================
+// Loading States & UI Feedback
+// ===================================
+const LoadingStates = {
+  show(element) {
+    if (typeof element === 'string') {
+      element = document.getElementById(element);
+    }
+    if (element) {
+      element.classList.add('loading');
+      element.setAttribute('aria-busy', 'true');
+    }
+  },
+  
+  hide(element) {
+    if (typeof element === 'string') {
+      element = document.getElementById(element);
+    }
+    if (element) {
+      element.classList.remove('loading');
+      element.setAttribute('aria-busy', 'false');
+    }
+  },
+  
+  showSkeleton() {
+    document.querySelectorAll('.gauge-value .value, .stat-value').forEach(el => {
+      if (el.textContent === '--' || el.textContent === '') {
+        el.classList.add('skeleton');
+      }
+    });
+  },
+  
+  hideSkeleton() {
+    document.querySelectorAll('.skeleton').forEach(el => {
+      el.classList.remove('skeleton');
+    });
+  }
+};
+
+// ===================================
+// User Preferences Manager
+// ===================================
+const UserPreferences = {
+  defaults: {
+    refreshInterval: 20000,
+    chartRange: 60,
+    enableNotifications: false,
+    enableSounds: false,
+    customThresholds: null
+  },
+  
+  get(key) {
+    return STATE.userPreferences[key] ?? this.defaults[key];
+  },
+  
+  set(key, value) {
+    STATE.userPreferences[key] = value;
+    localStorage.setItem('userPreferences', JSON.stringify(STATE.userPreferences));
+    console.log(`Preference updated: ${key} = ${value}`);
+  },
+  
+  reset() {
+    STATE.userPreferences = { ...this.defaults };
+    localStorage.setItem('userPreferences', JSON.stringify(STATE.userPreferences));
+    console.log('Preferences reset to defaults');
+  }
+};
+
+// Initialize accessibility on load
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    if (typeof Accessibility !== 'undefined') Accessibility.init();
+  });
+} else {
+  setTimeout(() => {
+    if (typeof Accessibility !== 'undefined') Accessibility.init();
+  }, 1500);
+}
