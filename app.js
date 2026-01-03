@@ -7,8 +7,8 @@ const CONFIG = {
   channelId: 3216999,
   apiKey: 'G6OOCBLAPWKE8V2D', // Letter O not zero - TODO: Move to backend/env variable
   baseUrl: 'https://api.thingspeak.com/channels',
-  updateInterval: 20000, // 20 seconds
-  chartUpdateInterval: 60000, // 1 minute
+  updateInterval: 300000, // 5 minutes to match backend publishing
+  chartUpdateInterval: 300000, // align chart refresh with sensor publish cadence
   defaultRange: 60, // 1 hour in results
   maxRetries: 3,
   retryDelay: 2000,
