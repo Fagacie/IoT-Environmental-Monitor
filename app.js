@@ -9,7 +9,7 @@ const CONFIG = {
   baseUrl: 'https://api.thingspeak.com/channels',
   updateInterval: 300000, // 5 minutes to match backend publishing
   chartUpdateInterval: 300000, // align chart refresh with sensor publish cadence
-  staleThresholdMs: 8 * 60 * 1000, // consider data stale if older than 8 minutes
+  staleThresholdMs: 6 * 60 * 1000, // consider data stale if older than 6 minutes (5 min cadence + 1 min slack)
   defaultRange: 60, // 1 hour in results
   maxRetries: 3,
   retryDelay: 2000,
@@ -638,6 +638,28 @@ const UI = {
     `).join('');
   },
 
+  // Watchdog: mark connection stale/disconnected if no fresh data arrives
+  checkStaleness() {
+    const statusEl = document.getElementById('connectionStatus');
+    if (!statusEl) return;
+
+    if (!STATE.lastUpdate) {
+      this.setConnectionStatus('disconnected');
+      return;
+    }
+
+    const ageMs = Date.now() - STATE.lastUpdate.getTime();
+    if (!Number.isFinite(ageMs)) {
+      this.setConnectionStatus('disconnected');
+      return;
+    }
+
+    if (ageMs > CONFIG.staleThresholdMs) {
+      this.setConnectionStatus('stale');
+      this.addActivity('No new data detected (stale)');
+    }
+  },
+
   setupRefreshButton() {
     const refreshBtn = document.getElementById('refreshBtn');
     if (refreshBtn) {
@@ -734,6 +756,9 @@ const App = {
       // Setup update intervals
       setInterval(() => UI.updateLiveData(), CONFIG.updateInterval);
       setInterval(() => Charts.updateAll(STATE.currentRange), CONFIG.chartUpdateInterval);
+      // Watchdog to downgrade status if data stops arriving
+      UI.checkStaleness();
+      setInterval(() => UI.checkStaleness(), 30000);
       
       console.log('✅ Dashboard initialized successfully!');
     } catch (error) {
