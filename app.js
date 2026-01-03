@@ -9,6 +9,7 @@ const CONFIG = {
   baseUrl: 'https://api.thingspeak.com/channels',
   updateInterval: 300000, // 5 minutes to match backend publishing
   chartUpdateInterval: 300000, // align chart refresh with sensor publish cadence
+  staleThresholdMs: 8 * 60 * 1000, // consider data stale if older than 8 minutes
   defaultRange: 60, // 1 hour in results
   maxRetries: 3,
   retryDelay: 2000,
@@ -123,6 +124,10 @@ const API = {
       case 'connected':
         statusEl.classList.add('connected');
         if (badgeText) badgeText.textContent = 'Connected';
+        break;
+      case 'stale':
+        statusEl.classList.add('error');
+        if (badgeText) badgeText.textContent = 'Stale Data';
         break;
       case 'connecting':
         statusEl.classList.add('connecting');
@@ -496,6 +501,15 @@ const UI = {
         return;
       }
 
+      // Detect stale data: if last update exceeds stale threshold, treat as disconnected
+      const lastUpdate = new Date(data.created_at);
+      const ageMs = Date.now() - lastUpdate.getTime();
+      if (!Number.isFinite(ageMs) || ageMs > CONFIG.staleThresholdMs) {
+        this.setConnectionStatus('stale');
+        this.addActivity('No new data from device (stale)');
+        return;
+      }
+
       // Update each gauge
       Gauges.update('temperature', data.field1);
       Gauges.update('humidity', data.field2);
@@ -503,7 +517,6 @@ const UI = {
       Gauges.update('waterLevel', data.field4);
 
       // Update last update time
-      const lastUpdate = new Date(data.created_at);
       STATE.lastUpdate = lastUpdate;
       const lastUpdateEl = document.getElementById('lastUpdate');
       if (lastUpdateEl) {
