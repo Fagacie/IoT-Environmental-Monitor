@@ -16,7 +16,7 @@ const CONFIG = {
   requestTimeout: 10000,
   // MQTT over WebSocket Configuration for ThingSpeak
   mqtt: {
-    enabled: true,
+    enabled: false, // Disabled: ThingSpeak MQTT port 8883 is for native clients, not browser WebSockets
     broker: 'mqtt3.thingspeak.com',
     port: 8883,
     protocol: 'wss', // WebSocket Secure
