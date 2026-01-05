@@ -50,6 +50,8 @@ const STATE = {
   retryCount: 0,
   mqttConnected: false,
   mqttClient: null,
+  lastFeedCreatedAt: null, // track last feed timestamp to detect frozen updates
+  lastFeedSeenAt: null,    // track when we last saw a feed (regardless of timestamp)
   statistics: {
     totalRequests: 0,
     successfulRequests: 0,
@@ -645,6 +647,21 @@ const UI = {
         this.setConnectionStatus('stale');
         this.addActivity('No new data from device (stale)');
         return;
+      }
+
+      // Detect if feed timestamp is frozen (no new entries) beyond 2 intervals
+      const createdAtStr = data.created_at;
+      const nowMs = Date.now();
+      const freezeThresholdMs = CONFIG.updateInterval * 2; // two expected publish intervals
+      if (STATE.lastFeedCreatedAt === createdAtStr) {
+        if (STATE.lastFeedSeenAt && (nowMs - STATE.lastFeedSeenAt) > freezeThresholdMs) {
+          this.setConnectionStatus('disconnected');
+          this.addActivity('No new data from device (stopped sending)');
+          return;
+        }
+      } else {
+        STATE.lastFeedCreatedAt = createdAtStr;
+        STATE.lastFeedSeenAt = nowMs;
       }
 
       // Update each gauge
