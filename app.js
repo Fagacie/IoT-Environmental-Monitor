@@ -5,7 +5,7 @@
 // Configuration
 const CONFIG = {
   channelId: 3216999,
-  apiKey: 'G6OOCBLAPWKE8V2D', // Letter O not zero - TODO: Move to backend/env variable
+  apiKey: 'G6OOCBLAPWKE8V2D',
   baseUrl: 'https://api.thingspeak.com/channels',
   updateInterval: 300000, // 5 minutes to match backend publishing
   chartUpdateInterval: 300000, // align chart refresh with sensor publish cadence
@@ -14,6 +14,18 @@ const CONFIG = {
   maxRetries: 3,
   retryDelay: 2000,
   requestTimeout: 10000,
+  // MQTT over WebSocket Configuration for ThingSpeak
+  mqtt: {
+    enabled: true,
+    broker: 'mqtt3.thingspeak.com',
+    port: 8883,
+    protocol: 'wss', // WebSocket Secure
+    clientId: 'JjwLBzs6HyMtCDgjKC4THTw',
+    username: 'JjwLBzs6HyMtCDgjKC4THTw',
+    password: 'VKEan+eJnTv8An9nj6fJJ5Lk',
+    channelId: 3216999,
+    topicSubscribe: 'channels/3216999/subscribe'
+  },
   sensors: {
     temperature: { field: 'field1', unit: '°C', color: '#f59e0b', min: 15, max: 35, name: 'Temperature' },
     humidity: { field: 'field2', unit: '%', color: '#3b82f6', min: 30, max: 80, name: 'Humidity' },
@@ -36,6 +48,8 @@ const STATE = {
   connectionStatus: 'disconnected',
   lastError: null,
   retryCount: 0,
+  mqttConnected: false,
+  mqttClient: null,
   statistics: {
     totalRequests: 0,
     successfulRequests: 0,
@@ -57,6 +71,109 @@ const STATE = {
     waterLevel: []
   },
   userPreferences: JSON.parse(localStorage.getItem('userPreferences') || '{}')
+};
+
+// ===================================
+// MQTT Service for Real-Time Updates
+// ===================================
+const MQTT = {
+  init() {
+    if (!CONFIG.mqtt.enabled || typeof mqtt === 'undefined') {
+      console.log('MQTT disabled or library not available, using REST API polling');
+      return;
+    }
+
+    try {
+      const clientId = CONFIG.mqtt.clientId + '_' + Math.random().toString(16).substr(2, 8);
+      const options = {
+        clientId: clientId,
+        username: CONFIG.mqtt.username,
+        password: CONFIG.mqtt.password,
+        clean: true,
+        connectTimeout: 4000,
+        reconnectPeriod: 5000,
+        rejectUnauthorized: false
+      };
+
+      const url = `${CONFIG.mqtt.protocol}://${CONFIG.mqtt.broker}:${CONFIG.mqtt.port}`;
+      console.log('Connecting to MQTT broker:', url);
+      
+      STATE.mqttClient = mqtt.connect(url, options);
+
+      STATE.mqttClient.on('connect', () => {
+        console.log('✅ MQTT Connected');
+        STATE.mqttConnected = true;
+        UI.addActivity('Real-time MQTT connected');
+        
+        // Subscribe to channel feed
+        STATE.mqttClient.subscribe(CONFIG.mqtt.topicSubscribe, (err) => {
+          if (err) {
+            console.error('Subscribe error:', err);
+          } else {
+            console.log('Subscribed to:', CONFIG.mqtt.topicSubscribe);
+            UI.addActivity('Subscribed to live sensor feed');
+          }
+        });
+      });
+
+      STATE.mqttClient.on('message', (topic, message) => {
+        console.log('MQTT message received on', topic);
+        this.handleMessage(message);
+      });
+
+      STATE.mqttClient.on('error', (error) => {
+        console.error('MQTT error:', error);
+        STATE.mqttConnected = false;
+        UI.addActivity('MQTT connection error: ' + error.message, 'error');
+      });
+
+      STATE.mqttClient.on('disconnect', () => {
+        console.log('MQTT disconnected');
+        STATE.mqttConnected = false;
+      });
+
+    } catch (error) {
+      console.error('MQTT initialization failed:', error);
+      UI.addActivity('MQTT initialization failed, using REST API');
+    }
+  },
+
+  handleMessage(message) {
+    try {
+      const payload = message.toString();
+      console.log('Raw MQTT payload:', payload);
+      
+      // Parse field1=value&field2=value format
+      const data = this.parseThingSpeakPayload(payload);
+      
+      if (data && (data.field1 || data.field2 || data.field3 || data.field4)) {
+        console.log('Parsed MQTT data:', data);
+        
+        // Update UI with MQTT data
+        if (data.field1) Gauges.update('temperature', data.field1);
+        if (data.field2) Gauges.update('humidity', data.field2);
+        if (data.field3) Gauges.update('pressure', data.field3);
+        if (data.field4) Gauges.update('waterLevel', data.field4);
+        
+        STATE.lastUpdate = new Date();
+        UI.addActivity('Real-time update via MQTT');
+      }
+    } catch (error) {
+      console.error('Error handling MQTT message:', error);
+    }
+  },
+
+  parseThingSpeakPayload(payload) {
+    const data = {};
+    const pairs = payload.split('&');
+    pairs.forEach(pair => {
+      const [key, value] = pair.split('=');
+      if (key && value) {
+        data[key] = parseFloat(value);
+      }
+    });
+    return data;
+  }
 };
 
 // ===================================
@@ -732,6 +849,9 @@ const App = {
     try {
       // Initialize theme
       Theme.init();
+      
+      // Initialize MQTT for real-time updates
+      MQTT.init();
       
       // Initialize charts
       Gauges.init();
