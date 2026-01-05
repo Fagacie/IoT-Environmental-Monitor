@@ -5,7 +5,7 @@ A production-grade, enterprise-level web dashboard for real-time environmental a
 ## 🎯 Features
 
 ### Core Functionality
-- ✅ **Real-time Monitoring**: Live sensor data updates every 20 seconds
+- ✅ **Real-time Monitoring**: Live sensor data via MQTT + REST API every 5 minutes
 - ✅ **Historical Analytics**: Interactive charts with 1h/6h/24h views
 - ✅ **Multi-Sensor Support**: Temperature, Humidity, Pressure, Water Level
 - ✅ **Smart Alerts**: Browser notifications for critical thresholds
@@ -79,6 +79,21 @@ iot-web-dashboard/
 
 ## 🔧 Configuration
 
+### Data Source & Protocol
+```javascript
+// MQTT over WebSocket (Real-time, Primary)
+mqtt: {
+  enabled: true,
+  broker: 'mqtt3.thingspeak.com',
+  port: 8883,
+  protocol: 'wss' // WebSocket Secure
+}
+
+// REST API (Fallback/Historical)
+channelId: 3216999,
+apiKey: 'G6OOCBLAPWKE8V2D'
+```
+
 ### Sensor Thresholds
 Edit in `app.js`:
 ```javascript
@@ -92,8 +107,9 @@ sensors: {
 
 ### Update Intervals
 ```javascript
-updateInterval: 20000,      // Live data refresh (ms)
-chartUpdateInterval: 60000  // Chart data refresh (ms)
+updateInterval: 300000,      // Live data refresh (5 minutes) - matches Pico backend
+chartUpdateInterval: 300000  // Chart data refresh (5 minutes)
+staleThresholdMs: 360000     // Mark stale if no data for 6 minutes
 ```
 
 ### Retry Configuration
