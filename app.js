@@ -9,7 +9,7 @@ const CONFIG = {
   baseUrl: 'https://api.thingspeak.com/channels',
   updateInterval: 300000, // 5 minutes to match backend publishing
   chartUpdateInterval: 300000, // align chart refresh with sensor publish cadence
-  staleThresholdMs: 10 * 60 * 1000, // consider data stale if older than 10 minutes (5 min cadence + 5 min slack for network delays)
+  staleThresholdMs: 7 * 60 * 1000, // consider data stale if older than ~1.4x the 5m cadence
   defaultRange: 60, // 1 hour in results
   maxRetries: 3,
   retryDelay: 2000,
@@ -50,8 +50,9 @@ const STATE = {
   retryCount: 0,
   mqttConnected: false,
   mqttClient: null,
-  lastFeedCreatedAt: null, // track last feed timestamp to detect frozen updates
-  lastFeedSeenAt: null,    // track when we last saw a feed (regardless of timestamp)
+  lastFeedCreatedAt: null,    // track last feed timestamp
+  lastFeedChangeAt: null,     // when the feed timestamp last changed
+  lastFeedSeenAt: null,       // when we last saw any feed (even if unchanged)
   statistics: {
     totalRequests: 0,
     successfulRequests: 0,
@@ -649,19 +650,33 @@ const UI = {
         return;
       }
 
-      // Detect if feed timestamp is frozen (no new entries) beyond 2 intervals
+      // Detect freshness and frozen feed
       const createdAtStr = data.created_at;
+      const createdAtMs = new Date(createdAtStr).getTime();
       const nowMs = Date.now();
-      const freezeThresholdMs = CONFIG.updateInterval * 2; // two expected publish intervals
-      if (STATE.lastFeedCreatedAt === createdAtStr) {
-        if (STATE.lastFeedSeenAt && (nowMs - STATE.lastFeedSeenAt) > freezeThresholdMs) {
-          this.setConnectionStatus('disconnected');
-          this.addActivity('No new data from device (stopped sending)');
-          return;
-        }
-      } else {
+      const freshnessMs = nowMs - createdAtMs;
+      const freshnessThreshold = CONFIG.updateInterval * 1.5; // ~7.5 minutes for 5m cadence
+      const freezeThreshold = CONFIG.updateInterval * 2;      // 10 minutes for 5m cadence
+
+      // Track when the feed timestamp last changed
+      if (!STATE.lastFeedCreatedAt || STATE.lastFeedCreatedAt !== createdAtStr) {
         STATE.lastFeedCreatedAt = createdAtStr;
-        STATE.lastFeedSeenAt = nowMs;
+        STATE.lastFeedChangeAt = nowMs;
+      }
+      STATE.lastFeedSeenAt = nowMs;
+
+      const noChangeDuration = STATE.lastFeedChangeAt ? (nowMs - STATE.lastFeedChangeAt) : 0;
+
+      if (freshnessMs > freshnessThreshold) {
+        this.setConnectionStatus('disconnected');
+        this.addActivity('Device offline: data older than expected');
+        return;
+      }
+
+      if (noChangeDuration > freezeThreshold) {
+        this.setConnectionStatus('disconnected');
+        this.addActivity('Device offline: no new entries detected');
+        return;
       }
 
       // Update each gauge
