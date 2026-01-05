@@ -103,6 +103,7 @@ const MQTT = {
       STATE.mqttClient.on('connect', () => {
         console.log('✅ MQTT Connected');
         STATE.mqttConnected = true;
+        DeviceHealth.recordMQTTConnection();
         UI.addActivity('Real-time MQTT connected');
         
         // Subscribe to channel feed
@@ -118,18 +119,21 @@ const MQTT = {
 
       STATE.mqttClient.on('message', (topic, message) => {
         console.log('MQTT message received on', topic);
+        DeviceHealth.recordMessageSent();
         this.handleMessage(message);
       });
 
       STATE.mqttClient.on('error', (error) => {
         console.error('MQTT error:', error);
         STATE.mqttConnected = false;
+        DeviceHealth.recordMQTTDisconnection();
         UI.addActivity('MQTT connection error: ' + error.message, 'error');
       });
 
       STATE.mqttClient.on('disconnect', () => {
         console.log('MQTT disconnected');
         STATE.mqttConnected = false;
+        DeviceHealth.recordMQTTDisconnection();
       });
 
     } catch (error) {
@@ -154,6 +158,19 @@ const MQTT = {
         if (data.field2) Gauges.update('humidity', data.field2);
         if (data.field3) Gauges.update('pressure', data.field3);
         if (data.field4) Gauges.update('waterLevel', data.field4);
+        
+        // Record for health and trend monitoring
+        DeviceHealth.recordDataPoint({ created_at: new Date().toISOString(), ...data });
+        TrendAnalysis.storeDataPoint('temperature', data.field1);
+        TrendAnalysis.storeDataPoint('humidity', data.field2);
+        TrendAnalysis.storeDataPoint('pressure', data.field3);
+        TrendAnalysis.storeDataPoint('waterLevel', data.field4);
+        
+        // Check alerts
+        AlertManager.checkThresholds('temperature', data.field1);
+        AlertManager.checkThresholds('humidity', data.field2);
+        AlertManager.checkThresholds('pressure', data.field3);
+        AlertManager.checkThresholds('waterLevel', data.field4);
         
         STATE.lastUpdate = new Date();
         UI.addActivity('Real-time update via MQTT');
@@ -633,6 +650,19 @@ const UI = {
       Gauges.update('pressure', data.field3);
       Gauges.update('waterLevel', data.field4);
 
+      // Record data for health monitoring and trends
+      DeviceHealth.recordDataPoint(data);
+      TrendAnalysis.storeDataPoint('temperature', data.field1);
+      TrendAnalysis.storeDataPoint('humidity', data.field2);
+      TrendAnalysis.storeDataPoint('pressure', data.field3);
+      TrendAnalysis.storeDataPoint('waterLevel', data.field4);
+      
+      // Check alert thresholds
+      AlertManager.checkThresholds('temperature', data.field1);
+      AlertManager.checkThresholds('humidity', data.field2);
+      AlertManager.checkThresholds('pressure', data.field3);
+      AlertManager.checkThresholds('waterLevel', data.field4);
+
       // Update last update time
       STATE.lastUpdate = lastUpdate;
       const lastUpdateEl = document.getElementById('lastUpdate');
@@ -836,6 +866,422 @@ const Theme = {
         ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>'
         : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
     }
+};
+
+// ===================================
+// Device Health Monitoring Module
+// ===================================
+const DeviceHealth = {
+  state: {
+    mqttConnected: false,
+    connectTime: null,
+    messagesSent: 0,
+    failedTransmissions: 0,
+    lastDataTime: null,
+    responseTimes: []
+  },
+
+  init() {
+    console.log('Initializing Device Health Monitor...');
+    this.startUptimeTracker();
+    this.setupEventListeners();
+  },
+
+  startUptimeTracker() {
+    setInterval(() => this.updateUptime(), 1000);
+  },
+
+  updateUptime() {
+    if (!this.state.connectTime) return;
+    
+    const now = Date.now();
+    const uptimeMs = now - this.state.connectTime;
+    const hours = Math.floor(uptimeMs / (1000 * 60 * 60));
+    const minutes = Math.floor((uptimeMs % (1000 * 60 * 60)) / (1000 * 60));
+    
+    const uptimeEl = document.getElementById('uptimeValue');
+    if (uptimeEl) uptimeEl.textContent = `${hours}h ${minutes}m`;
+  },
+
+  recordMQTTConnection() {
+    this.state.mqttConnected = true;
+    this.state.connectTime = Date.now();
+    this.state.messagesSent = 0;
+    this.state.failedTransmissions = 0;
+    
+    const statusEl = document.getElementById('mqttStatus');
+    const badgeEl = document.getElementById('mqttStatusBadge');
+    const timeEl = document.getElementById('mqttTime');
+    
+    if (statusEl) statusEl.textContent = 'Connected';
+    if (badgeEl) {
+      badgeEl.className = 'badge success';
+      badgeEl.textContent = 'Online';
+    }
+    if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
+    
+    UI.addActivity('Device Health: MQTT connected');
+  },
+
+  recordMQTTDisconnection() {
+    this.state.mqttConnected = false;
+    
+    const statusEl = document.getElementById('mqttStatus');
+    const badgeEl = document.getElementById('mqttStatusBadge');
+    
+    if (statusEl) statusEl.textContent = 'Disconnected';
+    if (badgeEl) {
+      badgeEl.className = 'badge error';
+      badgeEl.textContent = 'Offline';
+    }
+  },
+
+  recordMessageSent() {
+    this.state.messagesSent++;
+    const el = document.getElementById('messagesSent');
+    if (el) el.textContent = this.state.messagesSent;
+  },
+
+  recordFailedTransmission() {
+    this.state.failedTransmissions++;
+    const el = document.getElementById('failedTransmissions');
+    if (el) el.textContent = this.state.failedTransmissions;
+  },
+
+  recordDataPoint(data) {
+    this.state.lastDataTime = new Date(data.created_at || Date.now());
+    const lastEl = document.getElementById('lastDataPoint');
+    const timeEl = document.getElementById('lastDataTime');
+    
+    if (lastEl) lastEl.textContent = this.state.lastDataTime.toLocaleTimeString();
+    if (timeEl) timeEl.textContent = `${Math.floor((Date.now() - this.state.lastDataTime) / 1000)}s ago`;
+  },
+
+  recordLatency(ms) {
+    this.state.responseTimes.push(ms);
+    if (this.state.responseTimes.length > 100) {
+      this.state.responseTimes.shift();
+    }
+    
+    const avg = Math.round(this.state.responseTimes.reduce((a, b) => a + b, 0) / this.state.responseTimes.length);
+    const el = document.getElementById('apiLatency');
+    if (el) el.textContent = `${avg}ms`;
+  },
+
+  setupEventListeners() {
+    // MQTT connection will trigger these
+  }
+};
+
+// ===================================
+// Alert Management Module
+// ===================================
+const AlertManager = {
+  state: {
+    thresholds: {
+      temperature: { min: 15, max: 35 },
+      humidity: { min: 30, max: 80 },
+      pressure: { min: 980, max: 1040 },
+      waterLevel: { min: 0, max: 100 }
+    },
+    webhookUrl: '',
+    history: [],
+    activeAlerts: {}
+  },
+
+  init() {
+    console.log('Initializing Alert Manager...');
+    this.loadThresholds();
+    this.setupUI();
+  },
+
+  loadThresholds() {
+    const saved = localStorage.getItem('alertThresholds');
+    if (saved) {
+      this.state.thresholds = JSON.parse(saved);
+    }
+    
+    const webhook = localStorage.getItem('webhookUrl');
+    if (webhook) {
+      this.state.webhookUrl = webhook;
+    }
+    
+    this.updateUIInputs();
+  },
+
+  updateUIInputs() {
+    document.getElementById('tempMin').value = this.state.thresholds.temperature.min;
+    document.getElementById('tempMax').value = this.state.thresholds.temperature.max;
+    document.getElementById('humMin').value = this.state.thresholds.humidity.min;
+    document.getElementById('humMax').value = this.state.thresholds.humidity.max;
+    document.getElementById('webhookUrl').value = this.state.webhookUrl;
+  },
+
+  setupUI() {
+    const toggle = document.getElementById('alertToggle');
+    const panel = document.getElementById('alertPanel');
+    const closeBtn = document.getElementById('closeAlertPanel');
+    const saveBtn = document.getElementById('saveAlerts');
+    
+    if (toggle) toggle.addEventListener('click', () => {
+      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    });
+    
+    if (closeBtn) closeBtn.addEventListener('click', () => {
+      panel.style.display = 'none';
+    });
+    
+    if (saveBtn) saveBtn.addEventListener('click', () => this.saveThresholds());
+  },
+
+  saveThresholds() {
+    this.state.thresholds.temperature.min = parseFloat(document.getElementById('tempMin').value);
+    this.state.thresholds.temperature.max = parseFloat(document.getElementById('tempMax').value);
+    this.state.thresholds.humidity.min = parseFloat(document.getElementById('humMin').value);
+    this.state.thresholds.humidity.max = parseFloat(document.getElementById('humMax').value);
+    this.state.webhookUrl = document.getElementById('webhookUrl').value;
+    
+    localStorage.setItem('alertThresholds', JSON.stringify(this.state.thresholds));
+    localStorage.setItem('webhookUrl', this.state.webhookUrl);
+    
+    UI.addActivity('✅ Alert thresholds saved');
+  },
+
+  checkThresholds(sensorType, value) {
+    const threshold = this.state.thresholds[sensorType];
+    if (!threshold) return;
+    
+    let alertType = null;
+    let message = '';
+    
+    if (value < threshold.min) {
+      alertType = 'critical';
+      message = `${sensorType} TOO LOW: ${value} (min: ${threshold.min})`;
+    } else if (value > threshold.max) {
+      alertType = 'critical';
+      message = `${sensorType} TOO HIGH: ${value} (max: ${threshold.max})`;
+    }
+    
+    if (alertType) {
+      this.triggerAlert(sensorType, message, alertType);
+    }
+  },
+
+  triggerAlert(sensorType, message, type = 'warning') {
+    const timestamp = new Date().toLocaleString();
+    const alert = { sensorType, message, type, timestamp };
+    
+    this.state.history.unshift(alert);
+    if (this.state.history.length > 50) this.state.history.pop();
+    
+    this.displayAlert(alert);
+    this.sendWebhook(alert);
+    UI.addActivity(`⚠️ ALERT: ${message}`, 'error');
+  },
+
+  displayAlert(alert) {
+    const container = document.getElementById('activeAlerts');
+    if (!container) return;
+    
+    const alertEl = document.createElement('div');
+    alertEl.className = `alert-toast ${alert.type}`;
+    alertEl.innerHTML = `
+      <div class="alert-toast-text">
+        <div class="alert-toast-title">${alert.sensorType.toUpperCase()} Alert</div>
+        <div class="alert-toast-message">${alert.message}</div>
+      </div>
+      <button class="alert-toast-close">×</button>
+    `;
+    
+    container.insertBefore(alertEl, container.firstChild);
+    
+    alertEl.querySelector('.alert-toast-close').addEventListener('click', () => {
+      alertEl.remove();
+    });
+    
+    setTimeout(() => alertEl.remove(), 8000);
+  },
+
+  sendWebhook(alert) {
+    if (!this.state.webhookUrl) return;
+    
+    try {
+      fetch(this.state.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          alert: alert.message,
+          type: alert.type,
+          sensor: alert.sensorType,
+          timestamp: alert.timestamp
+        })
+      }).catch(err => console.warn('Webhook failed:', err));
+    } catch (error) {
+      console.error('Webhook error:', error);
+    }
+  },
+
+  renderHistory() {
+    const historyEl = document.getElementById('alertHistory');
+    if (!historyEl || this.state.history.length === 0) return;
+    
+    historyEl.innerHTML = this.state.history.slice(0, 10).map(alert => `
+      <div class="alert-item ${alert.type}">
+        <div><strong>${alert.sensorType}:</strong> ${alert.message}</div>
+        <div class="alert-time">${alert.timestamp}</div>
+      </div>
+    `).join('');
+  }
+};
+
+// ===================================
+// Trend Analysis Module
+// ===================================
+const TrendAnalysis = {
+  state: {
+    dataStore: {
+      temperature: [],
+      humidity: [],
+      pressure: [],
+      waterLevel: []
+    },
+    period: 7 // days
+  },
+
+  init() {
+    console.log('Initializing Trend Analysis...');
+    this.setupUI();
+  },
+
+  setupUI() {
+    const periodSelect = document.getElementById('trendPeriod');
+    if (periodSelect) {
+      periodSelect.addEventListener('change', (e) => {
+        this.state.period = parseInt(e.target.value);
+        this.updateTrends();
+      });
+    }
+  },
+
+  storeDataPoint(sensorType, value) {
+    if (!this.state.dataStore[sensorType]) return;
+    
+    this.state.dataStore[sensorType].push({
+      value: value,
+      timestamp: Date.now()
+    });
+    
+    // Keep only data for the longest period (90 days)
+    const cutoffTime = Date.now() - (90 * 24 * 60 * 60 * 1000);
+    this.state.dataStore[sensorType] = this.state.dataStore[sensorType].filter(
+      d => d.timestamp > cutoffTime
+    );
+  },
+
+  updateTrends() {
+    const cutoffTime = Date.now() - (this.state.period * 24 * 60 * 60 * 1000);
+    
+    ['temperature', 'humidity', 'pressure', 'waterLevel'].forEach(sensor => {
+      const data = this.state.dataStore[sensor].filter(d => d.timestamp > cutoffTime);
+      if (data.length === 0) return;
+      
+      const values = data.map(d => d.value);
+      const current = values[values.length - 1];
+      const avg = values.reduce((a, b) => a + b) / values.length;
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      
+      const rateOfChange = this.calculateRateOfChange(data);
+      const trend = this.detectTrend(data);
+      const anomalies = this.detectAnomalies(values);
+      
+      this.displayTrend(sensor, { current, avg, min, max, rateOfChange, trend, anomalies });
+    });
+  },
+
+  calculateRateOfChange(data) {
+    if (data.length < 2) return 0;
+    
+    const oldValue = data[0].value;
+    const newValue = data[data.length - 1].value;
+    const timeSpanDays = (data[data.length - 1].timestamp - data[0].timestamp) / (24 * 60 * 60 * 1000);
+    
+    return ((newValue - oldValue) / timeSpanDays).toFixed(2);
+  },
+
+  detectTrend(data) {
+    if (data.length < 3) return 'stable';
+    
+    const recent = data.slice(-5).map(d => d.value);
+    const avg = recent.reduce((a, b) => a + b) / recent.length;
+    const older = data.slice(0, 5).map(d => d.value);
+    const oldAvg = older.reduce((a, b) => a + b) / older.length;
+    
+    const change = avg - oldAvg;
+    if (change > 0.5) return 'up';
+    if (change < -0.5) return 'down';
+    return 'stable';
+  },
+
+  detectAnomalies(values) {
+    const mean = values.reduce((a, b) => a + b) / values.length;
+    const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length;
+    const stdDev = Math.sqrt(variance);
+    
+    return values.filter(v => Math.abs(v - mean) > 3 * stdDev);
+  },
+
+  displayTrend(sensor, stats) {
+    const units = {
+      temperature: '°C',
+      humidity: '%',
+      pressure: 'hPa',
+      waterLevel: 'cm'
+    };
+    
+    const unit = units[sensor] || '';
+    const trendDir = stats.trend === 'up' ? '↑' : stats.trend === 'down' ? '↓' : '→';
+    const trendClass = stats.trend === 'up' ? 'up' : stats.trend === 'down' ? 'down' : 'stable';
+    
+    const updateUI = (elementId, value) => {
+      const el = document.getElementById(elementId);
+      if (el) el.textContent = value;
+    };
+    
+    updateUI(`trend${sensor.charAt(0).toUpperCase() + sensor.slice(1)}Current`, `${stats.current.toFixed(1)}${unit}`);
+    updateUI(`trend${sensor.charAt(0).toUpperCase() + sensor.slice(1)}Avg`, `${stats.avg.toFixed(1)}${unit}`);
+    updateUI(`trend${sensor.charAt(0).toUpperCase() + sensor.slice(1)}Range`, `${stats.min.toFixed(1)} / ${stats.max.toFixed(1)}${unit}`);
+    
+    const dirEl = document.getElementById(`trend${sensor.charAt(0).toUpperCase() + sensor.slice(1)}Dir`);
+    if (dirEl) {
+      dirEl.textContent = trendDir;
+      dirEl.className = `trend-indicator ${trendClass}`;
+    }
+    
+    updateUI(`trend${sensor.charAt(0).toUpperCase() + sensor.slice(1)}Rate`, `${stats.rateOfChange}${unit}/day`);
+    
+    if (stats.anomalies.length > 0) {
+      this.displayAnomalies(sensor, stats.anomalies);
+    }
+  },
+
+  displayAnomalies(sensor, anomalies) {
+    const list = document.getElementById('anomalyList');
+    if (!list || anomalies.length === 0) return;
+    
+    if (list.querySelector('.no-anomalies')) {
+      list.innerHTML = '';
+    }
+    
+    anomalies.forEach(value => {
+      const item = document.createElement('div');
+      item.className = 'anomaly-item';
+      item.innerHTML = `
+        <div class="anomaly-label">⚠️ Anomaly Detected</div>
+        <div class="anomaly-detail">${sensor}: ${value.toFixed(2)} (unusual value)</div>
+      `;
+      list.appendChild(item);
+    });
   }
 };
 
@@ -849,6 +1295,11 @@ const App = {
     try {
       // Initialize theme
       Theme.init();
+      
+      // Initialize advanced modules
+      DeviceHealth.init();
+      AlertManager.init();
+      TrendAnalysis.init();
       
       // Initialize MQTT for real-time updates
       MQTT.init();
