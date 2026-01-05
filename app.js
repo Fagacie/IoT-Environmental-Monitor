@@ -692,6 +692,20 @@ const UI = {
     }
   },
 
+  async updateDataPointsToday() {
+    try {
+      // Fetch a larger window to capture today's points (up to ~41 hours at 5m cadence)
+      const feeds = await API.getHistoricalData(500);
+      const today = new Date().toISOString().slice(0, 10);
+      const countToday = feeds.filter(f => f.created_at && f.created_at.startsWith(today)).length;
+      STATE.dataPointsToday = countToday;
+      const el = document.getElementById('dataPoints');
+      if (el) el.textContent = countToday;
+    } catch (error) {
+      console.error('Error updating data points count:', error);
+    }
+  },
+
   setConnectionStatus(status) {
     const statusEl = document.getElementById('connectionStatus');
     if (!statusEl) return;
@@ -1372,10 +1386,12 @@ const App = {
       console.log('Loading initial data...');
       await UI.updateLiveData();
       await Charts.updateAll(STATE.currentRange);
+      await UI.updateDataPointsToday();
       
       // Setup update intervals
       setInterval(() => UI.updateLiveData(), CONFIG.updateInterval);
       setInterval(() => Charts.updateAll(STATE.currentRange), CONFIG.chartUpdateInterval);
+      setInterval(() => UI.updateDataPointsToday(), 15 * 60 * 1000);
       // Watchdog to downgrade status if data stops arriving
       UI.checkStaleness();
       setInterval(() => UI.checkStaleness(), 30000);
