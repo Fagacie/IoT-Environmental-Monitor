@@ -153,6 +153,9 @@ const MQTT = {
       if (data && (data.field1 || data.field2 || data.field3 || data.field4)) {
         console.log('Parsed MQTT data:', data);
         
+        // Mark MQTT connection as active
+        DeviceHealth.recordMQTTDataPoint();
+        
         // Update UI with MQTT data
         if (data.field1) Gauges.update('temperature', data.field1);
         if (data.field2) Gauges.update('humidity', data.field2);
@@ -651,6 +654,7 @@ const UI = {
       Gauges.update('waterLevel', data.field4);
 
       // Record data for health monitoring and trends
+      DeviceHealth.recordDataPointFromREST();
       DeviceHealth.recordDataPoint(data);
       TrendAnalysis.storeDataPoint('temperature', data.field1);
       TrendAnalysis.storeDataPoint('humidity', data.field2);
@@ -879,7 +883,8 @@ const DeviceHealth = {
     messagesSent: 0,
     failedTransmissions: 0,
     lastDataTime: null,
-    responseTimes: []
+    responseTimes: [],
+    dataSource: 'none' // 'mqtt', 'rest', or 'none'
   },
 
   init() {
@@ -906,35 +911,52 @@ const DeviceHealth = {
 
   recordMQTTConnection() {
     this.state.mqttConnected = true;
-    this.state.connectTime = Date.now();
-    this.state.messagesSent = 0;
-    this.state.failedTransmissions = 0;
-    
-    const statusEl = document.getElementById('mqttStatus');
-    const badgeEl = document.getElementById('mqttStatusBadge');
-    const timeEl = document.getElementById('mqttTime');
-    
-    if (statusEl) statusEl.textContent = 'Connected';
-    if (badgeEl) {
-      badgeEl.className = 'badge success';
-      badgeEl.textContent = 'Online';
+    if (!this.state.connectTime) {
+      this.state.connectTime = Date.now();
     }
-    if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
-    
+    this.state.dataSource = 'mqtt';
+    this.updateConnectionStatus('Connected', 'MQTT');
     UI.addActivity('Device Health: MQTT connected');
   },
 
   recordMQTTDisconnection() {
     this.state.mqttConnected = false;
-    
+    if (this.state.dataSource === 'mqtt') {
+      this.state.dataSource = 'none';
+    }
+  },
+
+  recordMQTTDataPoint() {
+    // Called when MQTT message received - marks MQTT as active data source
+    if (!this.state.connectTime) {
+      this.state.connectTime = Date.now();
+    }
+    this.state.dataSource = 'mqtt';
+    this.updateConnectionStatus('Connected', 'MQTT');
+  },
+
+  recordDataPointFromREST() {
+    // When REST API provides data, mark as connected via REST
+    if (!this.state.connectTime) {
+      this.state.connectTime = Date.now();
+    }
+    if (this.state.dataSource !== 'mqtt') {
+      this.state.dataSource = 'rest';
+    }
+    this.updateConnectionStatus('Connected', 'REST API');
+  },
+
+  updateConnectionStatus(status, source) {
     const statusEl = document.getElementById('mqttStatus');
     const badgeEl = document.getElementById('mqttStatusBadge');
+    const timeEl = document.getElementById('mqttTime');
     
-    if (statusEl) statusEl.textContent = 'Disconnected';
+    if (statusEl) statusEl.textContent = `${status} (${source})`;
     if (badgeEl) {
-      badgeEl.className = 'badge error';
-      badgeEl.textContent = 'Offline';
+      badgeEl.className = 'badge success';
+      badgeEl.textContent = 'Online';
     }
+    if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
   },
 
   recordMessageSent() {
