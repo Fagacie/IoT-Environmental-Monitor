@@ -9,7 +9,7 @@ const CONFIG = {
   baseUrl: 'https://api.thingspeak.com/channels',
   updateInterval: 300000, // 5 minutes to match backend publishing
   chartUpdateInterval: 300000, // align chart refresh with sensor publish cadence
-  staleThresholdMs: 6 * 60 * 1000, // consider data stale if older than 6 minutes (5 min cadence + 1 min slack)
+  staleThresholdMs: 10 * 60 * 1000, // consider data stale if older than 10 minutes (5 min cadence + 5 min slack for network delays)
   defaultRange: 60, // 1 hour in results
   maxRetries: 3,
   retryDelay: 2000,
@@ -700,8 +700,8 @@ const UI = {
     
     const statusText = {
       connected: 'Connected',
-      stale: 'Stale Data',
-      disconnected: 'Disconnected'
+      stale: 'Waiting for Data',
+      disconnected: 'No Data'
     };
 
     const textEl = statusEl.querySelector('.badge-text');
@@ -712,8 +712,16 @@ const UI = {
     // Update API status
     const apiStatusEl = document.getElementById('apiStatus');
     if (apiStatusEl) {
-      apiStatusEl.textContent = status === 'connected' ? 'Online' : 'Offline';
-      apiStatusEl.style.color = status === 'connected' ? 'var(--success)' : 'var(--danger)';
+      if (status === 'connected') {
+        apiStatusEl.textContent = 'Online';
+        apiStatusEl.style.color = 'var(--success)';
+      } else if (status === 'stale') {
+        apiStatusEl.textContent = 'Waiting (No new data in 10+ min)';
+        apiStatusEl.style.color = '#f59e0b';  // Warning color
+      } else {
+        apiStatusEl.textContent = 'Offline (No data)';
+        apiStatusEl.style.color = 'var(--danger)';
+      }
     }
   },
 
@@ -975,9 +983,27 @@ const DeviceHealth = {
     this.state.lastDataTime = new Date(data.created_at || Date.now());
     const lastEl = document.getElementById('lastDataPoint');
     const timeEl = document.getElementById('lastDataTime');
+    const ageSeconds = Math.floor((Date.now() - this.state.lastDataTime) / 1000);
     
     if (lastEl) lastEl.textContent = this.state.lastDataTime.toLocaleTimeString();
-    if (timeEl) timeEl.textContent = `${Math.floor((Date.now() - this.state.lastDataTime) / 1000)}s ago`;
+    if (timeEl) {
+      if (ageSeconds < 60) {
+        timeEl.textContent = `${ageSeconds}s ago`;
+      } else if (ageSeconds < 3600) {
+        timeEl.textContent = `${Math.floor(ageSeconds / 60)}m ${ageSeconds % 60}s ago`;
+      } else {
+        timeEl.textContent = `${Math.floor(ageSeconds / 3600)}h ago`;
+      }
+    }
+    
+    // Warn if data is older than update interval
+    if (ageSeconds > 600) { // 10 minutes
+      const warning = document.getElementById('dataAgeWarning');
+      if (warning) {
+        warning.style.display = 'block';
+        warning.textContent = `⚠️ No data for ${Math.floor(ageSeconds / 60)} minutes - Check if Pico is powered on`;
+      }
+    }
   },
 
   recordLatency(ms) {
