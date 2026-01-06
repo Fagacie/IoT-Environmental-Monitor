@@ -641,22 +641,21 @@ const UI = {
         return;
       }
 
-      // Detect stale data: if last update exceeds stale threshold, treat as disconnected
+      // Check data age immediately - if older than 1.2x interval (6 min), mark offline
       const lastUpdate = new Date(data.created_at);
       const ageMs = Date.now() - lastUpdate.getTime();
-      if (!Number.isFinite(ageMs) || ageMs > CONFIG.staleThresholdMs) {
-        this.setConnectionStatus('stale');
-        this.addActivity('No new data from device (stale)');
+      const maxAgeMs = CONFIG.updateInterval * 1.2; // 6 minutes for 5-minute cadence
+      
+      if (!Number.isFinite(ageMs) || ageMs > maxAgeMs) {
+        this.setConnectionStatus('disconnected');
+        this.addActivity(`Device offline: last data ${Math.floor(ageMs / 60000)} minutes old`);
         return;
       }
 
-      // Detect freshness and frozen feed
+      // Detect frozen feed (timestamp not changing)
       const createdAtStr = data.created_at;
-      const createdAtMs = new Date(createdAtStr).getTime();
       const nowMs = Date.now();
-      const freshnessMs = nowMs - createdAtMs;
-      const freshnessThreshold = CONFIG.updateInterval * 1.5; // ~7.5 minutes for 5m cadence
-      const freezeThreshold = CONFIG.updateInterval * 2;      // 10 minutes for 5m cadence
+      const freezeThreshold = CONFIG.updateInterval * 2; // 10 minutes
 
       // Track when the feed timestamp last changed
       if (!STATE.lastFeedCreatedAt || STATE.lastFeedCreatedAt !== createdAtStr) {
@@ -666,12 +665,6 @@ const UI = {
       STATE.lastFeedSeenAt = nowMs;
 
       const noChangeDuration = STATE.lastFeedChangeAt ? (nowMs - STATE.lastFeedChangeAt) : 0;
-
-      if (freshnessMs > freshnessThreshold) {
-        this.setConnectionStatus('disconnected');
-        this.addActivity('Device offline: data older than expected');
-        return;
-      }
 
       if (noChangeDuration > freezeThreshold) {
         this.setConnectionStatus('disconnected');
