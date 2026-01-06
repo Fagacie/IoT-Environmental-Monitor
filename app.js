@@ -165,18 +165,8 @@ const MQTT = {
         if (data.field3) Gauges.update('pressure', data.field3);
         if (data.field4) Gauges.update('waterLevel', data.field4);
         
-        // Record for health and trend monitoring
+        // Record for health monitoring
         DeviceHealth.recordDataPoint({ created_at: new Date().toISOString(), ...data });
-        TrendAnalysis.storeDataPoint('temperature', data.field1);
-        TrendAnalysis.storeDataPoint('humidity', data.field2);
-        TrendAnalysis.storeDataPoint('pressure', data.field3);
-        TrendAnalysis.storeDataPoint('waterLevel', data.field4);
-        
-        // Check alerts
-        AlertManager.checkThresholds('temperature', data.field1);
-        AlertManager.checkThresholds('humidity', data.field2);
-        AlertManager.checkThresholds('pressure', data.field3);
-        AlertManager.checkThresholds('waterLevel', data.field4);
         
         STATE.lastUpdate = new Date();
         UI.addActivity('Real-time update via MQTT');
@@ -678,20 +668,10 @@ const UI = {
       Gauges.update('pressure', data.field3);
       Gauges.update('waterLevel', data.field4);
 
-      // Record data for health monitoring and trends
+      // Record data for health monitoring
       DeviceHealth.recordDataPointFromREST();
       DeviceHealth.recordDataPoint(data);
-      TrendAnalysis.storeDataPoint('temperature', data.field1);
-      TrendAnalysis.storeDataPoint('humidity', data.field2);
-      TrendAnalysis.storeDataPoint('pressure', data.field3);
-      TrendAnalysis.storeDataPoint('waterLevel', data.field4);
       
-      // Check alert thresholds
-      AlertManager.checkThresholds('temperature', data.field1);
-      AlertManager.checkThresholds('humidity', data.field2);
-      AlertManager.checkThresholds('pressure', data.field3);
-      AlertManager.checkThresholds('waterLevel', data.field4);
-
       // Update last update time
       STATE.lastUpdate = lastUpdate;
       const lastUpdateEl = document.getElementById('lastUpdate');
@@ -1062,168 +1042,7 @@ const DeviceHealth = {
 };
 
 // ===================================
-// Alert Management Module
-// ===================================
-const AlertManager = {
-  state: {
-    thresholds: {
-      temperature: { min: 15, max: 35 },
-      humidity: { min: 30, max: 80 },
-      pressure: { min: 980, max: 1040 },
-      waterLevel: { min: 0, max: 100 }
-    },
-    webhookUrl: '',
-    history: [],
-    activeAlerts: {}
-  },
-
-  init() {
-    console.log('Initializing Alert Manager...');
-    this.loadThresholds();
-    this.setupUI();
-  },
-
-  loadThresholds() {
-    const saved = localStorage.getItem('alertThresholds');
-    if (saved) {
-      this.state.thresholds = JSON.parse(saved);
-    }
-    
-    const webhook = localStorage.getItem('webhookUrl');
-    if (webhook) {
-      this.state.webhookUrl = webhook;
-    }
-    
-    this.updateUIInputs();
-  },
-
-  updateUIInputs() {
-    document.getElementById('tempMin').value = this.state.thresholds.temperature.min;
-    document.getElementById('tempMax').value = this.state.thresholds.temperature.max;
-    document.getElementById('humMin').value = this.state.thresholds.humidity.min;
-    document.getElementById('humMax').value = this.state.thresholds.humidity.max;
-    document.getElementById('webhookUrl').value = this.state.webhookUrl;
-  },
-
-  setupUI() {
-    const toggle = document.getElementById('alertToggle');
-    const panel = document.getElementById('alertPanel');
-    const closeBtn = document.getElementById('closeAlertPanel');
-    const saveBtn = document.getElementById('saveAlerts');
-    
-    if (toggle) toggle.addEventListener('click', () => {
-      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-    });
-    
-    if (closeBtn) closeBtn.addEventListener('click', () => {
-      panel.style.display = 'none';
-    });
-    
-    if (saveBtn) saveBtn.addEventListener('click', () => this.saveThresholds());
-  },
-
-  saveThresholds() {
-    this.state.thresholds.temperature.min = parseFloat(document.getElementById('tempMin').value);
-    this.state.thresholds.temperature.max = parseFloat(document.getElementById('tempMax').value);
-    this.state.thresholds.humidity.min = parseFloat(document.getElementById('humMin').value);
-    this.state.thresholds.humidity.max = parseFloat(document.getElementById('humMax').value);
-    this.state.webhookUrl = document.getElementById('webhookUrl').value;
-    
-    localStorage.setItem('alertThresholds', JSON.stringify(this.state.thresholds));
-    localStorage.setItem('webhookUrl', this.state.webhookUrl);
-    
-    UI.addActivity('✅ Alert thresholds saved');
-  },
-
-  checkThresholds(sensorType, value) {
-    const threshold = this.state.thresholds[sensorType];
-    if (!threshold) return;
-    
-    let alertType = null;
-    let message = '';
-    
-    if (value < threshold.min) {
-      alertType = 'critical';
-      message = `${sensorType} TOO LOW: ${value} (min: ${threshold.min})`;
-    } else if (value > threshold.max) {
-      alertType = 'critical';
-      message = `${sensorType} TOO HIGH: ${value} (max: ${threshold.max})`;
-    }
-    
-    if (alertType) {
-      this.triggerAlert(sensorType, message, alertType);
-    }
-  },
-
-  triggerAlert(sensorType, message, type = 'warning') {
-    const timestamp = new Date().toLocaleString();
-    const alert = { sensorType, message, type, timestamp };
-    
-    this.state.history.unshift(alert);
-    if (this.state.history.length > 50) this.state.history.pop();
-    
-    this.displayAlert(alert);
-    this.sendWebhook(alert);
-    UI.addActivity(`⚠️ ALERT: ${message}`, 'error');
-  },
-
-  displayAlert(alert) {
-    const container = document.getElementById('activeAlerts');
-    if (!container) return;
-    
-    const alertEl = document.createElement('div');
-    alertEl.className = `alert-toast ${alert.type}`;
-    alertEl.innerHTML = `
-      <div class="alert-toast-text">
-        <div class="alert-toast-title">${alert.sensorType.toUpperCase()} Alert</div>
-        <div class="alert-toast-message">${alert.message}</div>
-      </div>
-      <button class="alert-toast-close">×</button>
-    `;
-    
-    container.insertBefore(alertEl, container.firstChild);
-    
-    alertEl.querySelector('.alert-toast-close').addEventListener('click', () => {
-      alertEl.remove();
-    });
-    
-    setTimeout(() => alertEl.remove(), 8000);
-  },
-
-  sendWebhook(alert) {
-    if (!this.state.webhookUrl) return;
-    
-    try {
-      fetch(this.state.webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          alert: alert.message,
-          type: alert.type,
-          sensor: alert.sensorType,
-          timestamp: alert.timestamp
-        })
-      }).catch(err => console.warn('Webhook failed:', err));
-    } catch (error) {
-      console.error('Webhook error:', error);
-    }
-  },
-
-  renderHistory() {
-    const historyEl = document.getElementById('alertHistory');
-    if (!historyEl || this.state.history.length === 0) return;
-    
-    historyEl.innerHTML = this.state.history.slice(0, 10).map(alert => `
-      <div class="alert-item ${alert.type}">
-        <div><strong>${alert.sensorType}:</strong> ${alert.message}</div>
-        <div class="alert-time">${alert.timestamp}</div>
-      </div>
-    `).join('');
-  }
-};
-
-// ===================================
-// Trend Analysis Module
+// App Initialization
 // ===================================
 const TrendAnalysis = {
   state: {
@@ -1386,8 +1205,7 @@ const App = {
       
       // Initialize advanced modules
       DeviceHealth.init();
-      AlertManager.init();
-      TrendAnalysis.init();
+      // AlertManager and TrendAnalysis removed - UI sections deleted
       
       // Initialize MQTT for real-time updates
       MQTT.init();
