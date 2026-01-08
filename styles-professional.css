@@ -152,31 +152,37 @@ body {
   overflow-x: hidden;
 }
 
-/* Animated background gradient */
+/* Animated background - aurora style */
 body::before {
   content: '';
   position: fixed;
-  inset: 0;
-  background: radial-gradient(circle at 20% 20%, rgba(14, 165, 233, 0.16), transparent 30%),
-              radial-gradient(circle at 80% 0%, rgba(99, 102, 241, 0.18), transparent 32%),
-              radial-gradient(circle at 30% 80%, rgba(16, 185, 129, 0.15), transparent 32%),
-              linear-gradient(135deg, #f8fafc 0%, #eef2ff 40%, #f0fdfa 100%);
-  animation: bgFloat 18s ease-in-out infinite;
+  inset: -12%;
+  background:
+    radial-gradient(40% 32% at 18% 18%, rgba(56, 189, 248, 0.24), transparent 55%),
+    radial-gradient(36% 30% at 78% 10%, rgba(99, 102, 241, 0.22), transparent 55%),
+    radial-gradient(42% 32% at 24% 78%, rgba(16, 185, 129, 0.20), transparent 55%),
+    linear-gradient(120deg, #e0f2fe 0%, #ede9fe 30%, #f5d0fe 60%, #d1fae5 100%);
+  background-size: 180% 180%;
+  filter: blur(0px);
+  opacity: 0.95;
+  animation: auroraShift 26s ease-in-out infinite alternate;
   z-index: 0;
   pointer-events: none;
 }
 
 [data-theme="dark"] body::before {
-  background: radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.12), transparent 30%),
-              radial-gradient(circle at 80% 0%, rgba(129, 140, 248, 0.14), transparent 32%),
-              radial-gradient(circle at 30% 80%, rgba(52, 211, 153, 0.12), transparent 32%),
-              linear-gradient(135deg, #0f172a 0%, #0b1220 45%, #0f172a 100%);
+  background:
+    radial-gradient(42% 34% at 20% 20%, rgba(56, 189, 248, 0.16), transparent 55%),
+    radial-gradient(38% 32% at 80% 12%, rgba(129, 140, 248, 0.18), transparent 55%),
+    radial-gradient(46% 34% at 26% 80%, rgba(52, 211, 153, 0.14), transparent 55%),
+    linear-gradient(120deg, #0b1220 0%, #0f172a 45%, #111827 100%);
+  background-size: 180% 180%;
 }
 
-@keyframes bgFloat {
-  0% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(0, -8px, 0) scale(1.01); }
-  100% { transform: translate3d(0, 0, 0) scale(1); }
+@keyframes auroraShift {
+  0% { transform: translate3d(0, 0, 0) scale(1); background-position: 0% 50%; }
+  50% { transform: translate3d(0, -10px, 0) scale(1.01); background-position: 100% 50%; }
+  100% { transform: translate3d(0, 0, 0) scale(1); background-position: 0% 50%; }
 }
 
 /* Ensure content sits above animated background */
