@@ -762,6 +762,17 @@ body > * {
   text-align: center;
 }
 
+.gauge-delta {
+  font-size: var(--text-xs);
+  text-align: center;
+  margin-top: 4px;
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+}
+.gauge-delta.positive { color: var(--success-600); }
+.gauge-delta.negative { color: var(--error-600); }
+.gauge-delta.neutral { color: var(--text-tertiary); }
+
 /* ===== Chart Cards ===== */
 .charts-section {
   display: flex;

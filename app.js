@@ -73,6 +73,7 @@ const STATE = {
     pressure: [],
     waterLevel: []
   },
+  prevValues: {},
   userPreferences: JSON.parse(localStorage.getItem('userPreferences') || '{}')
 };
 
@@ -452,6 +453,9 @@ const Gauges = {
 
     // Update status
     this.updateStatus(sensor, numValue, config);
+
+    // Update delta since last reading
+    this.updateDelta(sensor, numValue, config);
   },
 
   updateStatus(sensor, value, config) {
@@ -494,6 +498,30 @@ const Gauges = {
     if (typeof UI.updateSystemHealth === 'function') {
       UI.updateSystemHealth(sensor, statusText, healthKey);
     }
+  },
+
+  updateDelta(sensor, value, config) {
+    const prev = STATE.prevValues[sensor];
+    const deltaEl = document.getElementById(`delta${{
+      temperature: 'Temp',
+      humidity: 'Hum',
+      pressure: 'Pres',
+      waterLevel: 'Water'
+    }[sensor]}`);
+    if (!deltaEl) return;
+
+    if (prev === undefined) {
+      deltaEl.textContent = '—';
+      deltaEl.className = 'gauge-delta neutral';
+    } else {
+      const diff = value - prev;
+      const sign = diff > 0 ? '+' : diff < 0 ? '' : '';
+      const magnitude = Math.abs(diff) < 0.01 ? 0 : diff;
+      deltaEl.textContent = magnitude === 0 ? 'No change' : `${sign}${diff.toFixed(2)} ${config.unit}`;
+      deltaEl.className = 'gauge-delta ' + (diff > 0.01 ? 'positive' : diff < -0.01 ? 'negative' : 'neutral');
+    }
+
+    STATE.prevValues[sensor] = value;
   }
 };
 
