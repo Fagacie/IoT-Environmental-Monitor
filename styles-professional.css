@@ -322,6 +322,23 @@ body {
   white-space: nowrap;
 }
 
+/* ===== Density (Compact) ===== */
+[data-density="compact"] .navbar .nav-btn .btn-text { display: none; }
+[data-density="compact"] .navbar { padding: 8px 16px; }
+[data-density="compact"] .stat-card { padding: 14px; }
+[data-density="compact"] .stat-card .stat-value { font-size: 1.25rem; }
+[data-density="compact"] .charts-section .chart-card { padding: 12px; }
+[data-density="compact"] .charts-section .chart-header h3 { font-size: 0.95rem; }
+[data-density="compact"] .gauge-card { padding: 12px; }
+[data-density="compact"] .section-header { padding: 10px 0; }
+[data-density="compact"] .time-controls .time-btn { padding: 6px 10px; }
+[data-density="compact"] .connection-badge { padding: 4px 8px; }
+
+/* ===== Time Controls (Segmented) ===== */
+.time-controls { display: inline-flex; background: var(--surface-elevated); border: 1px solid var(--border-primary); border-radius: 999px; padding: 4px; gap: 4px; }
+.time-controls .time-btn { border-radius: 999px; padding: 8px 12px; border: 1px solid transparent; }
+.time-controls .time-btn.active { background: var(--accent-50, rgba(59,130,246,0.12)); border-color: var(--accent-300, rgba(59,130,246,0.3)); }
+
 .btn:hover {
   opacity: 0.85;
 }

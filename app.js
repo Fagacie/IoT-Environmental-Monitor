@@ -884,6 +884,10 @@ const Theme = {
     if (toggle) {
       toggle.addEventListener('click', () => this.toggle());
     }
+
+    // Apply saved density
+    const savedDensity = localStorage.getItem('density') || 'comfortable';
+    document.documentElement.setAttribute('data-density', savedDensity);
   },
 
   toggle() {
@@ -910,6 +914,19 @@ const Theme = {
         : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
     }
   }
+};
+
+// Density toggle (compact/comfortable)
+UI.setupDensityToggle = function() {
+  const btn = document.getElementById('densityToggle');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-density') || 'comfortable';
+    const next = current === 'compact' ? 'comfortable' : 'compact';
+    document.documentElement.setAttribute('data-density', next);
+    localStorage.setItem('density', next);
+    UI.addActivity(`View density set to ${next}`);
+  });
 };
 
 // ===================================
@@ -1224,11 +1241,19 @@ const App = {
       
       // Initialize charts
       Gauges.init();
+      // Apply Chart.js defaults for professional theme
+      if (typeof Chart !== 'undefined') {
+        Chart.defaults.font.family = 'Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
+        Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#64748b';
+        Chart.defaults.borderColor = 'rgba(148, 163, 184, 0.15)';
+        Chart.defaults.plugins.legend.labels.usePointStyle = true;
+      }
       Charts.init();
       
       // Setup UI controls
       UI.setupTimeRangeButtons();
       UI.setupRefreshButton();
+      UI.setupDensityToggle();
       
       // Start clock
       UI.updateClock();
