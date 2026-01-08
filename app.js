@@ -467,21 +467,32 @@ const Gauges = {
     if (!statusElement) return;
 
     // Remove all status classes
-    statusElement.classList.remove('normal', 'warning', 'critical');
+    statusElement.classList.remove('normal', 'warning', 'critical', 'status-normal', 'status-warning', 'status-critical');
 
     // Determine status
     const lowWarning = config.min + (config.max - config.min) * 0.1;
     const highWarning = config.max - (config.max - config.min) * 0.1;
 
+    let statusText = 'Normal';
+    let statusClass = 'status-normal';
+    let healthKey = 'ok';
+
     if (value < config.min || value > config.max) {
-      statusElement.textContent = 'Critical';
-      statusElement.classList.add('critical');
+      statusText = 'Critical';
+      statusClass = 'status-critical';
+      healthKey = 'crit';
     } else if (value < lowWarning || value > highWarning) {
-      statusElement.textContent = 'Warning';
-      statusElement.classList.add('warning');
-    } else {
-      statusElement.textContent = 'Normal';
-      statusElement.classList.add('normal');
+      statusText = 'Warning';
+      statusClass = 'status-warning';
+      healthKey = 'warn';
+    }
+
+    statusElement.textContent = statusText;
+    statusElement.classList.add(statusClass);
+
+    // Update System Health chips
+    if (typeof UI.updateSystemHealth === 'function') {
+      UI.updateSystemHealth(sensor, statusText, healthKey);
     }
   }
 };
@@ -495,6 +506,8 @@ const Charts = {
     Object.keys(CONFIG.sensors).forEach(sensor => {
       this.createChart(sensor);
     });
+    // Initialize sparklines after charts
+    if (typeof Sparkline !== 'undefined') Sparkline.init();
   },
 
   createChart(sensor) {
@@ -592,6 +605,9 @@ const Charts = {
       Object.keys(CONFIG.sensors).forEach(sensor => {
         this.updateChart(sensor, feeds);
       });
+
+      // Update sparklines with the same feeds
+      if (typeof Sparkline !== 'undefined') Sparkline.updateFromFeeds(feeds);
     } catch (error) {
       console.error('Error updating charts:', error);
     }
@@ -625,6 +641,96 @@ const Charts = {
     }
     
     chart.data.datasets[0].data = data;
+    chart.update('none');
+  }
+};
+
+// ===================================
+// Mini Sparklines under Gauges
+// ===================================
+const Sparkline = {
+  charts: {},
+  maxPoints: 32,
+  idMap: {
+    temperature: 'sparkTemp',
+    humidity: 'sparkHum',
+    pressure: 'sparkPres',
+    waterLevel: 'sparkWater'
+  },
+
+  init() {
+    console.log('Initializing sparklines...');
+    Object.keys(CONFIG.sensors).forEach(sensor => this.create(sensor));
+  },
+
+  create(sensor) {
+    const canvasId = this.idMap[sensor];
+    const cfg = CONFIG.sensors[sensor];
+    const ctx = document.getElementById(canvasId);
+    if (!ctx || typeof Chart === 'undefined') return;
+
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          data: [],
+          borderColor: cfg.color,
+          backgroundColor: cfg.color + '22',
+          borderWidth: 1.5,
+          fill: true,
+          tension: 0.35,
+          pointRadius: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: { x: { display: false }, y: { display: false } },
+        animation: false
+      }
+    });
+
+    this.charts[sensor] = chart;
+  },
+
+  updateFromFeeds(feeds) {
+    if (!Array.isArray(feeds)) return;
+    Object.keys(CONFIG.sensors).forEach(sensor => {
+      const field = CONFIG.sensors[sensor].field;
+      const values = feeds
+        .map(f => (f && f[field] != null ? parseFloat(f[field]) : null))
+        .filter(v => Number.isFinite(v));
+      const last = values.slice(-this.maxPoints);
+      this.setData(sensor, last);
+    });
+  },
+
+  appendLatest(data) {
+    if (!data) return;
+    Object.keys(CONFIG.sensors).forEach(sensor => {
+      const field = CONFIG.sensors[sensor].field;
+      const raw = data[field];
+      if (!Number.isFinite(parseFloat(raw))) return;
+      const chart = this.charts[sensor];
+      if (!chart) return;
+      const ds = chart.data.datasets[0].data;
+      ds.push(parseFloat(raw));
+      while (ds.length > this.maxPoints) ds.shift();
+      // keep labels length in sync for category axis
+      const labels = chart.data.labels;
+      labels.push('');
+      while (labels.length > ds.length) labels.shift();
+      chart.update('none');
+    });
+  },
+
+  setData(sensor, arr) {
+    const chart = this.charts[sensor];
+    if (!chart) return;
+    chart.data.datasets[0].data = arr;
+    chart.data.labels = Array(arr.length).fill('');
     chart.update('none');
   }
 };
@@ -680,6 +786,9 @@ const UI = {
       Gauges.update('pressure', data.field3);
       Gauges.update('waterLevel', data.field4);
 
+      // Update sparklines with the latest point
+      if (typeof Sparkline !== 'undefined') Sparkline.appendLatest(data);
+
       // Record data for health monitoring
       DeviceHealth.recordDataPointFromREST();
       DeviceHealth.recordDataPoint(data);
@@ -700,6 +809,9 @@ const UI = {
 
       // Add to activity log
       this.addActivity(`Data updated: T=${data.field1}°C, H=${data.field2}%`);
+
+      // Cache last successful reading
+      if (typeof Cache !== 'undefined') Cache.save(data);
 
       this.setConnectionStatus('connected');
     } catch (error) {
@@ -868,6 +980,36 @@ const UI = {
       });
     }
   }
+};
+
+// Extra UI helpers
+UI.updateSystemHealth = function(sensor, statusText, healthKey) {
+  const idMap = {
+    temperature: 'sysHealth-temperature',
+    humidity: 'sysHealth-humidity',
+    pressure: 'sysHealth-pressure',
+    waterLevel: 'sysHealth-waterLevel'
+  };
+  const el = document.getElementById(idMap[sensor]);
+  if (!el) return;
+  const ind = el.querySelector('.health-indicator');
+  const st = el.querySelector('.health-status');
+  if (ind) {
+    ind.classList.remove('ok', 'warn', 'crit', 'active');
+    ind.classList.add(healthKey === 'ok' ? 'ok' : healthKey === 'warn' ? 'warn' : 'crit');
+  }
+  if (st) {
+    st.classList.remove('ok', 'warn', 'crit');
+    st.classList.add(healthKey === 'ok' ? 'ok' : healthKey === 'warn' ? 'warn' : 'crit');
+    st.textContent = statusText;
+  }
+};
+
+UI.setupExportButtons = function() {
+  const csvBtn = document.getElementById('exportCsvBtn');
+  const jsonBtn = document.getElementById('exportJsonBtn');
+  if (csvBtn) csvBtn.addEventListener('click', () => DataExport.exportToCSV());
+  if (jsonBtn) jsonBtn.addEventListener('click', () => DataExport.exportToJSON());
 };
 
 // ===================================
@@ -1254,6 +1396,7 @@ const App = {
       UI.setupTimeRangeButtons();
       UI.setupRefreshButton();
       UI.setupDensityToggle();
+      UI.setupExportButtons();
       
       // Start clock
       UI.updateClock();
@@ -1261,6 +1404,22 @@ const App = {
       
       // Initial activity log entry
       UI.addActivity('Dashboard initialized successfully');
+      
+      // Preload from cache (instant render)
+      try {
+        const cached = typeof Cache !== 'undefined' ? Cache.load() : null;
+        if (cached && cached.created_at) {
+          Gauges.update('temperature', cached.field1);
+          Gauges.update('humidity', cached.field2);
+          Gauges.update('pressure', cached.field3);
+          Gauges.update('waterLevel', cached.field4);
+          if (typeof Sparkline !== 'undefined') Sparkline.appendLatest(cached);
+          const lastUpdateEl = document.getElementById('lastUpdate');
+          if (lastUpdateEl) lastUpdateEl.textContent = new Date(cached.created_at).toLocaleTimeString();
+          UI.setConnectionStatus('stale');
+          UI.addActivity('Loaded last reading from cache');
+        }
+      } catch {}
       
       // Initial data load
       console.log('Loading initial data...');
@@ -1587,6 +1746,19 @@ const ErrorHandler = {
     setTimeout(() => {
       toast.classList.remove('show');
     }, 5000);
+  }
+};
+
+// ===================================
+// Local Cache (last reading)
+// ===================================
+const Cache = {
+  key: 'iot:lastReading',
+  save(data) {
+    try { localStorage.setItem(this.key, JSON.stringify(data)); } catch (e) { /* ignore */ }
+  },
+  load() {
+    try { return JSON.parse(localStorage.getItem(this.key) || 'null'); } catch { return null; }
   }
 };
 

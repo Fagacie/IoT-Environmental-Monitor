@@ -51,6 +51,25 @@
           </span>
           <span class="btn-text">Refresh</span>
         </button>
+        <button id="exportCsvBtn" class="nav-btn" title="Export CSV">
+          <span class="btn-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </span>
+          <span class="btn-text">CSV</span>
+        </button>
+        <button id="exportJsonBtn" class="nav-btn" title="Export JSON">
+          <span class="btn-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 4h16v16H4z"/>
+              <path d="M7 7h10v10H7z"/>
+            </svg>
+          </span>
+          <span class="btn-text">JSON</span>
+        </button>
         <button id="densityToggle" class="nav-btn" title="Toggle Density">
           <span class="btn-icon">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -181,6 +200,7 @@
             </div>
             <div class="gauge-status" id="statusTemp">Normal</div>
             <div class="gauge-range">Range: 15-35°C</div>
+            <div class="sparkline"><canvas id="sparkTemp"></canvas></div>
           </div>
 
           <div class="gauge-card card-humidity">
@@ -199,6 +219,7 @@
             </div>
             <div class="gauge-status" id="statusHum">Normal</div>
             <div class="gauge-range">Range: 30-80%</div>
+            <div class="sparkline"><canvas id="sparkHum"></canvas></div>
           </div>
 
           <div class="gauge-card card-pressure">
@@ -218,6 +239,7 @@
             </div>
             <div class="gauge-status" id="statusPres">Normal</div>
             <div class="gauge-range">Range: 980-1040 hPa</div>
+            <div class="sparkline"><canvas id="sparkPres"></canvas></div>
           </div>
 
           <div class="gauge-card card-water">
@@ -236,6 +258,7 @@
             </div>
             <div class="gauge-status" id="statusWater">Normal</div>
             <div class="gauge-range">Range: 0-100 cm</div>
+            <div class="sparkline"><canvas id="sparkWater"></canvas></div>
           </div>
 
         </div>
@@ -383,21 +406,25 @@
             System Health
           </h3>
           <div class="health-grid">
-            <div class="health-item">
-              <div class="health-indicator active"></div>
-              <span>Temperature Sensor</span>
+            <div class="health-item" id="sysHealth-temperature">
+              <div class="health-indicator"></div>
+              <span class="health-label">Temperature</span>
+              <span class="health-status">--</span>
             </div>
-            <div class="health-item">
-              <div class="health-indicator active"></div>
-              <span>Humidity Sensor</span>
+            <div class="health-item" id="sysHealth-humidity">
+              <div class="health-indicator"></div>
+              <span class="health-label">Humidity</span>
+              <span class="health-status">--</span>
             </div>
-            <div class="health-item">
-              <div class="health-indicator active"></div>
-              <span>Pressure Sensor</span>
+            <div class="health-item" id="sysHealth-pressure">
+              <div class="health-indicator"></div>
+              <span class="health-label">Pressure</span>
+              <span class="health-status">--</span>
             </div>
-            <div class="health-item">
-              <div class="health-indicator active"></div>
-              <span>Water Level Sensor</span>
+            <div class="health-item" id="sysHealth-waterLevel">
+              <div class="health-indicator"></div>
+              <span class="health-label">Water Level</span>
+              <span class="health-status">--</span>
             </div>
           </div>
         </div>
@@ -446,11 +473,11 @@
             </div>
             <div class="config-item">
               <span class="config-label">Update Interval</span>
-              <span class="config-value">5 minutes (MQTT real-time)</span>
+              <span class="config-value">15 minutes (REST polling)</span>
             </div>
             <div class="config-item">
               <span class="config-label">Chart Refresh</span>
-              <span class="config-value">5 minutes</span>
+              <span class="config-value">15 minutes</span>
             </div>
           </div>
         </div>
