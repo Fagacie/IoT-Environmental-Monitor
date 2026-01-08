@@ -48,7 +48,7 @@
   --gray-900: #111827;
   
   /* ===== Light Theme ===== */
-  --background: #0d1424;
+  --background: #f9fafb;
   --surface: #ffffff;
   --surface-elevated: #ffffff;
   --surface-hover: #f3f4f6;
@@ -158,13 +158,13 @@ body::before {
   position: fixed;
   inset: -12%;
   background:
-    radial-gradient(40% 32% at 18% 18%, rgba(56, 189, 248, 0.28), transparent 55%),
-    radial-gradient(36% 30% at 78% 10%, rgba(99, 102, 241, 0.26), transparent 55%),
-    radial-gradient(42% 32% at 24% 78%, rgba(16, 185, 129, 0.24), transparent 55%),
-    linear-gradient(120deg, #0f1a2f 0%, #0b1325 45%, #10203a 100%);
+    radial-gradient(40% 32% at 18% 18%, rgba(56, 189, 248, 0.24), transparent 55%),
+    radial-gradient(36% 30% at 78% 10%, rgba(99, 102, 241, 0.22), transparent 55%),
+    radial-gradient(42% 32% at 24% 78%, rgba(16, 185, 129, 0.20), transparent 55%),
+    linear-gradient(120deg, #e0f2fe 0%, #ede9fe 30%, #f5d0fe 60%, #d1fae5 100%);
   background-size: 180% 180%;
   filter: blur(0px);
-  opacity: 1;
+  opacity: 0.95;
   animation: auroraShift 26s ease-in-out infinite alternate;
   z-index: 0;
   pointer-events: none;
