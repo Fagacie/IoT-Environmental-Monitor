@@ -1264,46 +1264,73 @@ body {
 /* ====================================
    Device Health Dashboard Styles
    ==================================== */
+.device-health-section {
+  margin: var(--space-8) 0;
+}
+
 .health-dashboard {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  margin-top: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-5);
 }
 
 .health-card {
-  background: var(--card-bg);
-  border: 1px solid var(--border-color);
+  background: var(--surface);
+  border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
-  padding: 1.25rem;
-  transition: all 0.3s ease;
+  padding: var(--space-5);
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  transition: all var(--transition-base);
+  box-shadow: var(--shadow-sm);
 }
 
 .health-card:hover {
-  border-color: var(--accent-500);
+  border-color: var(--primary-700);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-base);
+}
+
+.health-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--primary-700);
+  color: var(--text-inverse);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.health-card-icon.error {
+  background: var(--error-500);
 }
 
 .health-metric {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
 }
 
 .metric-label {
-  font-size: 0.875rem;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
-  font-weight: 500;
+  font-weight: var(--font-medium);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .metric-value {
-  font-size: 1.75rem;
-  font-weight: 700;
+  font-size: var(--text-2xl);
+  font-weight: var(--font-semibold);
   color: var(--text-primary);
-  font-family: 'Monaco', 'Courier New', monospace;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .metric-value.danger {
@@ -1311,8 +1338,8 @@ body {
 }
 
 .metric-time {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
 }
 
 /* ====================================
