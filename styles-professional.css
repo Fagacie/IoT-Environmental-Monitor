@@ -393,18 +393,20 @@ body {
   gap: var(--space-5);
 }
 
+
 .stat-card {
-  background: var(--surface);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, rgba(255,255,255,0.9), rgba(248,250,252,0.9));
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: var(--radius-xl);
   padding: var(--space-5);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  transition: all var(--transition-base);
+  transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
   position: relative;
   overflow: hidden;
+  backdrop-filter: blur(6px);
 }
 
 .stat-card::before {
@@ -433,8 +435,9 @@ body {
 }
 
 .stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-base);
+  transform: translateY(-4px);
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.12);
+  border-color: rgba(59, 130, 246, 0.2);
 }
 
 .stat-icon {
@@ -600,19 +603,21 @@ body {
 
 /* ===== Gauge Cards ===== */
 .gauge-card {
-  background: var(--surface);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
+  background: linear-gradient(160deg, rgba(255,255,255,0.95), rgba(244, 246, 248, 0.95));
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 18px;
   padding: var(--space-5);
-  box-shadow: var(--shadow-sm);
-  transition: all var(--transition-base);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
   position: relative;
   overflow: hidden;
+  backdrop-filter: blur(6px);
 }
 
 .gauge-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-base);
+  transform: translateY(-4px);
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.12);
+  border-color: rgba(6, 182, 212, 0.25);
 }
 
 .gauge-card::before {
@@ -1275,21 +1280,22 @@ body {
 }
 
 .health-card {
-  background: var(--surface);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
+  background: linear-gradient(150deg, rgba(255,255,255,0.95), rgba(240, 244, 248, 0.95));
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 18px;
   padding: var(--space-5);
   display: flex;
   gap: var(--space-4);
   align-items: flex-start;
-  transition: all var(--transition-base);
-  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(6px);
 }
 
 .health-card:hover {
-  border-color: var(--primary-700);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-base);
+  border-color: rgba(59, 130, 246, 0.25);
+  transform: translateY(-4px);
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.12);
 }
 
 .health-card-icon {
