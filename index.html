@@ -112,8 +112,8 @@
           </div>
           <div class="stat-content">
             <h3>Update Rate</h3>
-            <p class="stat-value">5m</p>
-            <span class="stat-label">Refresh interval (MQTT + REST)</span>
+            <p class="stat-value">15m</p>
+            <span class="stat-label">Refresh interval (REST)</span>
           </div>
         </div>
         
@@ -244,17 +244,22 @@
             Historical Trends & Analysis
           </h2>
           <div class="time-controls">
-            <button class="time-btn active" data-range="60">
+            <!-- Based on 15-minute cadence: 4 pts/hour, 96 pts/day -->
+            <button class="time-btn active" data-range="4">
               <span class="time-label">1 Hour</span>
-              <span class="time-desc">60 points</span>
+              <span class="time-desc">4 points</span>
             </button>
-            <button class="time-btn" data-range="360">
+            <button class="time-btn" data-range="24">
               <span class="time-label">6 Hours</span>
-              <span class="time-desc">360 points</span>
+              <span class="time-desc">24 points</span>
             </button>
-            <button class="time-btn" data-range="1440">
+            <button class="time-btn" data-range="96">
               <span class="time-label">24 Hours</span>
-              <span class="time-desc">1440 points</span>
+              <span class="time-desc">96 points</span>
+            </button>
+            <button class="time-btn" data-range="672">
+              <span class="time-label">7 Days</span>
+              <span class="time-desc">672 points</span>
             </button>
           </div>
         </div>

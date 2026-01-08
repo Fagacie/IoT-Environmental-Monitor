@@ -7,9 +7,9 @@ const CONFIG = {
   channelId: 3216999,
   apiKey: 'G6OOCBLAPWKE8V2D',
   baseUrl: 'https://api.thingspeak.com/channels',
-  updateInterval: 300000, // 5 minutes to match backend publishing
-  chartUpdateInterval: 300000, // align chart refresh with sensor publish cadence
-  staleThresholdMs: 7 * 60 * 1000, // consider data stale if older than ~1.4x the 5m cadence
+  updateInterval: 15 * 60 * 1000, // 15 minutes to match backend publishing
+  chartUpdateInterval: 15 * 60 * 1000, // align chart refresh with sensor publish cadence
+  staleThresholdMs: 20 * 60 * 1000, // stale if older than ~20 minutes on 15m cadence
   defaultRange: 60, // 1 hour in results
   maxRetries: 3,
   retryDelay: 2000,
@@ -611,6 +611,18 @@ const Charts = {
       }));
 
     console.log(`Updating ${sensor} chart with ${data.length} points`);
+    // Dynamically set time unit based on data density/length
+    let unit = 'minute';
+    if (data.length > 200) unit = 'hour';
+    if (data.length > 2000) unit = 'day';
+    if (chart.options && chart.options.scales && chart.options.scales.x && chart.options.scales.x.time) {
+      chart.options.scales.x.time.unit = unit;
+      chart.options.scales.x.time.displayFormats = {
+        minute: 'HH:mm',
+        hour: 'MMM d, HH:mm',
+        day: 'MMM d'
+      };
+    }
     
     chart.data.datasets[0].data = data;
     chart.update('none');
@@ -631,10 +643,10 @@ const UI = {
         return;
       }
 
-      // Check data age immediately - if older than 1.2x interval (6 min), mark offline
+      // Check data age immediately - if older than 1.2x interval (~18 min), mark offline
       const lastUpdate = new Date(data.created_at);
       const ageMs = Date.now() - lastUpdate.getTime();
-      const maxAgeMs = CONFIG.updateInterval * 1.2; // 6 minutes for 5-minute cadence
+      const maxAgeMs = CONFIG.updateInterval * 1.2; // ~18 minutes for 15-minute cadence
       
       if (!Number.isFinite(ageMs) || ageMs > maxAgeMs) {
         this.setConnectionStatus('disconnected');
