@@ -1567,59 +1567,173 @@ const DataExport = {
         return;
       }
       
-      // Create CSV content
-      const headers = ['Timestamp', 'Temperature (°C)', 'Humidity (%)', 'Pressure (hPa)', 'Water Level (cm)'];
-      const rows = data.map(entry => [
-        entry.created_at,
-        entry.field1 || '',
-        entry.field2 || '',
-        entry.field3 || '',
-        entry.field4 || ''
-      ]);
+      const now = new Date();
+      const csvLines = [];
       
-      const csvContent = [
-        headers.join(','),
-        ...rows.map(row => row.join(','))
-      ].join('\\n');
+      // Add metadata header
+      csvLines.push('# IoT Environmental Monitoring Data Export');
+      csvLines.push(`# Generated: ${now.toISOString()}`);
+      csvLines.push(`# Source: ThingSpeak Channel ${CONFIG.channelId}`);
+      csvLines.push(`# Total Records: ${data.length}`);
+      csvLines.push(`# Date Range: ${data[data.length-1]?.created_at || "N/A"} to ${data[0]?.created_at || "N/A"}`);
+      csvLines.push('');
+      
+      // Define comprehensive headers
+      const headers = [
+        'Timestamp',
+        'Temperature (°C)',
+        'Humidity (%)',
+        'Pressure (hPa)',
+        'Water Level (cm)',
+        'Temp Status',
+        'Humidity Status',
+        'Pressure Status',
+        'Water Status',
+        'Record ID'
+      ];
+      csvLines.push(headers.map(h => `"${h}"`).join(','));
+      
+      // Process data rows with calculated fields
+      data.forEach((entry, idx) => {
+        const tempStatus = this.getFieldStatus('temperature', entry.field1);
+        const humStatus = this.getFieldStatus('humidity', entry.field2);
+        const presStatus = this.getFieldStatus('pressure', entry.field3);
+        const waterStatus = this.getFieldStatus('waterLevel', entry.field4);
+        
+        const row = [
+          entry.created_at ? `"${entry.created_at}"` : '',
+          entry.field1 ? parseFloat(entry.field1).toFixed(2) : '',
+          entry.field2 ? parseFloat(entry.field2).toFixed(2) : '',
+          entry.field3 ? parseFloat(entry.field3).toFixed(2) : '',
+          entry.field4 ? parseFloat(entry.field4).toFixed(2) : '',
+          tempStatus,
+          humStatus,
+          presStatus,
+          waterStatus,
+          entry.entry_id || idx
+        ];
+        csvLines.push(row.join(','));
+      });
+      
+      csvLines.push('');
+      csvLines.push('# Legend');
+      csvLines.push('# Statuses: Normal | Warning | Critical');
+      csvLines.push('# Temperature Range: 15-35°C (Normal: 16.5-33.5°C)');
+      csvLines.push('# Humidity Range: 30-80% (Normal: 33-77%)');
+      csvLines.push('# Pressure Range: 980-1040 hPa (Normal: 982-1038 hPa)');
+      csvLines.push('# Water Level Range: 0-100 cm (Normal: 10-90 cm)');
+      
+      const csvContent = csvLines.join('\n');
       
       // Download file
-      const blob = new Blob([csvContent], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `iot-data-${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      const filename = `iot-export-${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}-${String(now.getMinutes()).padStart(2,'0')}.csv`;
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
       
-      UI.addActivity('Data exported successfully to CSV');
-      console.log('✅ Data exported to CSV');
+      UI.addActivity(`✅ CSV exported: ${filename}`);
+      console.log('Data exported to CSV with', data.length, 'records');
     } catch (error) {
       console.error('Export failed:', error);
-      UI.addActivity('Export failed - please try again');
+      UI.addActivity('Export failed: ' + error.message);
     }
   },
   
-  exportToJSON() {
-    const exportData = {
-      timestamp: new Date().toISOString(),
-      statistics: STATE.statistics,
-      dataHistory: STATE.dataHistory,
-      configuration: CONFIG
-    };
-    
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `iot-session-${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-    
-    UI.addActivity('Session data exported to JSON');
+  getFieldStatus(sensor, value) {
+    if (!value) return 'N/A';
+    const v = parseFloat(value);
+    const cfg = CONFIG.sensors[sensor];
+    const low = cfg.min + (cfg.max - cfg.min) * 0.1;
+    const high = cfg.max - (cfg.max - cfg.min) * 0.1;
+    if (v < cfg.min || v > cfg.max) return 'Critical';
+    if (v < low || v > high) return 'Warning';
+    return 'Normal';
+  },
+  
+  async exportToJSON() {
+    try {
+      const data = await API.getHistoricalData(1000);
+      const now = new Date();
+      
+      // Compute statistics on the fly
+      const computeStats = (arr) => {
+        if (!arr.length) return { min: 0, max: 0, mean: 0, median: 0, stdDev: 0 };
+        const sorted = [...arr].sort((a, b) => a - b);
+        const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+        const variance = arr.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / arr.length;
+        const stdDev = Math.sqrt(variance);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        return {
+          count: arr.length,
+          min: Math.min(...arr).toFixed(2),
+          max: Math.max(...arr).toFixed(2),
+          mean: mean.toFixed(2),
+          median: median.toFixed(2),
+          stdDev: stdDev.toFixed(2)
+        };
+      };
+      
+      const tempVals = data.filter(d => d.field1).map(d => parseFloat(d.field1));
+      const humVals = data.filter(d => d.field2).map(d => parseFloat(d.field2));
+      const presVals = data.filter(d => d.field3).map(d => parseFloat(d.field3));
+      const waterVals = data.filter(d => d.field4).map(d => parseFloat(d.field4));
+      
+      const exportData = {
+        metadata: {
+          exportDate: now.toISOString(),
+          source: `ThingSpeak Channel ${CONFIG.channelId}`,
+          recordCount: data.length,
+          dateRange: {
+            start: data[data.length-1]?.created_at || null,
+            end: data[0]?.created_at || null
+          }
+        },
+        statistics: {
+          temperature: computeStats(tempVals),
+          humidity: computeStats(humVals),
+          pressure: computeStats(presVals),
+          waterLevel: computeStats(waterVals)
+        },
+        thresholds: {
+          temperature: { min: CONFIG.sensors.temperature.min, max: CONFIG.sensors.temperature.max, unit: '°C' },
+          humidity: { min: CONFIG.sensors.humidity.min, max: CONFIG.sensors.humidity.max, unit: '%' },
+          pressure: { min: CONFIG.sensors.pressure.min, max: CONFIG.sensors.pressure.max, unit: 'hPa' },
+          waterLevel: { min: CONFIG.sensors.waterLevel.min, max: CONFIG.sensors.waterLevel.max, unit: 'cm' }
+        },
+        records: data.map(entry => ({
+          timestamp: entry.created_at,
+          temperature: entry.field1 ? parseFloat(entry.field1) : null,
+          humidity: entry.field2 ? parseFloat(entry.field2) : null,
+          pressure: entry.field3 ? parseFloat(entry.field3) : null,
+          waterLevel: entry.field4 ? parseFloat(entry.field4) : null,
+          entryId: entry.entry_id
+        })),
+        exportedBy: 'IoT Environmental Monitor Dashboard'
+      };
+      
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const filename = `iot-export-${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}.json`;
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      UI.addActivity(`✅ JSON exported: ${filename} (${data.length} records with stats)`);
+      console.log('Data exported to JSON with statistics');
+    } catch (error) {
+      console.error('Export failed:', error);
+      UI.addActivity('Export failed: ' + error.message);
+    }
   }
 };
 
